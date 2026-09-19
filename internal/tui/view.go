@@ -34,8 +34,11 @@ func (m model) View() string {
 	} else {
 		b.WriteString(m.renderTabs(w))
 		b.WriteString("\n")
+		b.WriteString(hrule(w))
+		b.WriteString("\n")
 		b.WriteString(m.renderTab(w, h))
 	}
+	b.WriteString("\n")
 
 	b.WriteString(m.renderFooter(w))
 	return b.String()
@@ -176,14 +179,21 @@ func max3(a, b, c float64) float64 {
 func (m model) renderTabs(w int) string {
 	var parts []string
 	for _, r := range tabRegions(m.tabCounts()) {
-		style := stTabOff
-		if r.t == m.tab {
-			style = stTabOn
-		}
 		// Render each segment from plain text only — wrapping a string that
 		// already contains another segment's ANSI codes in a second
 		// .Render() call corrupts the escape sequences.
-		part := style.Render(r.base)
+		if r.t == m.tab {
+			// Active tab reads as a solid pill, k9s/lazydocker-style, instead
+			// of a bare underline — a first-time user spots "where am I"
+			// instantly instead of having to notice an underline.
+			part := stTabOn.Render(r.base)
+			if r.countText != "" {
+				part += stTabOnCnt.Render(r.countText)
+			}
+			parts = append(parts, part)
+			continue
+		}
+		part := stTabOff.Render(r.base)
 		if r.countText != "" {
 			part += stFaint.Render(r.countText)
 		}
@@ -206,8 +216,18 @@ func (m model) tabCounts() map[tab]int {
 	return map[tab]int{tabProcs: len(s.Procs), tabPorts: listen, tabDisks: len(s.Disks), tabNet: len(s.NICs)}
 }
 
+// hrule draws a thin horizontal rule under the tab bar, separating chrome
+// from data — the same visual cue k9s/lazydocker use to make the screen read
+// as distinct panels instead of one undifferentiated block of text.
+func hrule(w int) string {
+	if w < 1 {
+		w = 1
+	}
+	return stFaint.Render(strings.Repeat("─", w))
+}
+
 func (m model) renderTab(w, h int) string {
-	avail := h - 6 // header + vitals + tabs + footer
+	avail := h - 7 // header + vitals + tabs + rule + footer
 	if avail < 3 {
 		avail = 3
 	}

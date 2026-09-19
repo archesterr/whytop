@@ -7,13 +7,13 @@ import (
 )
 
 // Row 3 (0-indexed) is always the tab bar: row 0 header, rows 1-2 the two
-// physical lines of the vitals cards, row 3 tabs — see View()'s layout,
-// which renderTab's `avail := h-6` budget also assumes. Rows 4+ are the
-// current tab's own header + data rows.
+// physical lines of the vitals cards, row 3 tabs, row 4 the rule line under
+// them — see View()'s layout, which renderTab's `avail := h-7` budget also
+// assumes. Rows 5+ are the current tab's own header + data rows.
 const (
 	tabBarRow     = 3
-	listHeaderRow = 4
-	listFirstRow  = 5
+	listHeaderRow = 5
+	listFirstRow  = 6
 )
 
 func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
