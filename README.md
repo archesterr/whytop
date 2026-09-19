@@ -33,7 +33,7 @@ whytop opens no socket and needs no token — it's a local program that reads `/
 |---|---|
 | Processes | CPU, memory, disk read/write per second, state (D and Z highlighted), systemd unit, command. Sort by any column |
 | Ports | Listening sockets with owning process and unit. Wildcard binds flagged. Established, time-wait, close-wait counts |
-| Disks | IOPS, throughput, await, queue, utilization per device. Filesystem and inode usage. Hung network mounts flagged |
+| Disks | IOPS, throughput, await, queue depth, utilization per device — plus the processes actually driving those numbers right now, a process stuck in D-state (blocked on I/O) always ranked first. Filesystem and inode usage. Hung network mounts flagged |
 | Network | Per-interface traffic, errors, drops. TCP retransmits, resets, new connections |
 
 Always visible: CPU, memory, I/O wait, load per core, and PSI pressure. A red banner surfaces immediately if the kernel OOM-killed a process — no need to go digging through `dmesg`.

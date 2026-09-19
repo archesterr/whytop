@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/archesterr/whytop/internal/actions"
+	"github.com/archesterr/whytop/internal/collect"
 )
 
 func TestClickTabSwitchesTab(t *testing.T) {
@@ -118,6 +119,32 @@ func TestProcsTableDropsUnitColumnWhenNarrow(t *testing.T) {
 	wide := m.renderProcs(160, 20)
 	if !strings.Contains(strings.Split(wide, "\n")[0], "UNIT") {
 		t.Error("at 160 columns there's room for the Unit column and it should be shown")
+	}
+}
+
+// The Disks tab's own device counters can say a disk is busy but never say
+// which process is responsible — that's the question renderDiskProcs exists
+// to answer. Coverage: a process actually blocked on I/O (state D) must
+// rank first even when its measured bytes/sec this tick is lower than a
+// merely-active process, since that's the one worth investigating.
+func TestRenderDiskProcsRanksBlockedProcessFirst(t *testing.T) {
+	snap := &collect.Snapshot{Procs: []collect.Proc{
+		{PID: 1, Name: "busy", User: "root", State: "S", ReadBps: 5_000_000, Cmdline: "busy"},
+		{PID: 2, Name: "stuck", User: "root", State: "D", ReadBps: 100, Cmdline: "stuck"},
+		{PID: 3, Name: "idle", User: "root", State: "S", Cmdline: "idle"},
+	}}
+	m := model{snap: snap}
+	out := m.renderDiskProcs(100, 10)
+	if strings.Contains(out, "idle") {
+		t.Error("a process with zero disk I/O and not blocked shouldn't appear in the top disk-I/O list")
+	}
+	stuckIdx := strings.Index(out, "stuck")
+	busyIdx := strings.Index(out, "busy")
+	if stuckIdx == -1 || busyIdx == -1 {
+		t.Fatalf("expected both active processes listed, got:\n%s", out)
+	}
+	if stuckIdx > busyIdx {
+		t.Errorf("a D-state (blocked on I/O) process should rank above a merely-busy one, got:\n%s", out)
 	}
 }
 
