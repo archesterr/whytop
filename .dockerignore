@@ -1,0 +1,12 @@
+# Everything the build doesn't need. bin/ especially: it holds a host-built
+# binary that would otherwise be copied into the build context and, worse,
+# could shadow the one built inside it.
+.git
+.github
+bin/
+dist/
+*.md
+Dockerfile*
+.dockerignore
+Makefile
+.goreleaser.yaml

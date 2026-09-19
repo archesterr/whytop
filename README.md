@@ -27,6 +27,43 @@ sudo whytop -port 443      # opens the process listening on 443
 
 whytop opens no socket and needs no token — it's a local program that reads `/proc` and signals processes directly, nothing more. Root is needed to see other users' sockets, per-process disk I/O and open files. The version running is always shown in the top-left corner (`sudo whytop -version` prints it and exits, for scripting).
 
+## Container
+
+```bash
+docker run --rm -it \
+  --pid=host --network=host \
+  --cap-add=SYS_PTRACE --cap-add=DAC_READ_SEARCH --cap-add=KILL \
+  -v /run/systemd:/run/systemd:ro \
+  -v /var/log/journal:/var/log/journal:ro \
+  ghcr.io/archesterr/whytop
+```
+
+whytop watches the *host*, so a container that can only see itself is a container that shows you nothing. Each flag above buys a specific thing, and dropping one degrades that thing and nothing else:
+
+| Flag | Without it |
+|---|---|
+| `-it` | No TTY, so no TUI at all — this one isn't optional |
+| `--pid=host` | You see the container's own handful of processes instead of the host's |
+| `--network=host` | The Ports and Network tabs show the container's namespace, not the host's |
+| `--cap-add=SYS_PTRACE` | Other users' per-process I/O and open files read as `hidden` |
+| `--cap-add=DAC_READ_SEARCH` | Same, for `/proc` entries the container user can't traverse |
+| `--cap-add=KILL` | Stop and force-kill fail |
+| `-v /run/systemd` | The Units tab says systemd isn't reachable (it won't sit there pretending to load) |
+| `-v /var/log/journal` | No journal, and OOM kills aren't detected |
+
+Two things the image genuinely cannot do:
+
+- **Filesystem usage is the container's, not the host's.** The Disks tab's block-device, IOPS and latency numbers come from `/proc/diskstats` and are host-wide, but mount usage comes from the mounts whytop can see. Bind-mount what you care about, or run the binary on the host for that tab.
+- **`c` (close a descriptor) needs gdb**, which isn't in the image — a debugger doesn't belong in a monitoring image. `t` (empty a file) works normally.
+
+Restarting units additionally needs write access to systemd's socket (`-v /run/systemd/private`), which is effectively full control of the host's services from inside the container. That's deliberately not in the command above; add it only if you want that.
+
+Build it yourself instead of pulling:
+
+```bash
+docker build -t whytop --build-arg VERSION=$(git describe --tags) .
+```
+
 ## What you get
 
 | Tab | Shows |

@@ -132,6 +132,9 @@ func (m model) renderUnits(w, h int) string {
 	}
 	units := m.snap.Units
 	if len(units) == 0 {
+		if e := m.snap.UnitsErr; e != "" {
+			return stMuted.Render(safeText(e) + "\nRunning in a container? Mount the host's systemd socket to see its units — see the README.")
+		}
 		return stMuted.Render("No service units.")
 	}
 

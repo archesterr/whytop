@@ -22,6 +22,26 @@ nfpms:
     formats: [deb, rpm]
     bindir: /usr/bin
 
+# dockers_v2 builds and pushes both architectures and the manifest that
+# points at them, so `docker pull ghcr.io/archesterr/whytop:1.2.3` resolves
+# to the right one on amd64 and arm64 alike.
+dockers_v2:
+  - images:
+      - "ghcr.io/archesterr/whytop"
+    tags:
+      - "{{ .Version }}"
+      - "latest"
+    platforms: ["linux/amd64", "linux/arm64"]
+    dockerfile: Dockerfile.release
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: "Live terminal UI for troubleshooting Linux servers"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+      org.opencontainers.image.source: "{{ .GitURL }}"
+      org.opencontainers.image.licenses: "MIT"
+
 checksum:
   name_template: checksums.txt
 
