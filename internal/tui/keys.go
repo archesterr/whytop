@@ -97,6 +97,14 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.sortKey = procSortCycle[(i+1)%len(procSortCycle)]
+			m.sortDir = defaultSortDir(m.sortKey)
+		}
+	case "S":
+		if m.tab == tabProcs {
+			m.sortDir = -m.sortDir
+			if m.sortDir == 0 {
+				m.sortDir = -defaultSortDir(m.sortKey)
+			}
 		}
 	case "a":
 		if m.tab == tabPorts {

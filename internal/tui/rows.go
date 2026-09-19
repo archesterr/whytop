@@ -44,16 +44,34 @@ func (m model) procRows() []collect.Proc {
 		list = out
 	}
 
-	dir := -1
-	if m.sortKey == "pid" {
-		dir = 1
+	dir := m.sortDir
+	if dir == 0 {
+		dir = defaultSortDir(m.sortKey)
 	}
 	less := func(i, j int) bool {
 		a, b := list[i], list[j]
+
+		// Text columns compare as text; the rest compare as numbers. Sorting
+		// USER or COMMAND numerically would be meaningless, and sorting MEM
+		// alphabetically would put "9 KiB" above "80 GiB".
+		if sx, sy, isText := sortText(m.sortKey, a, b); isText {
+			if sx != sy {
+				if dir < 0 {
+					return sx > sy
+				}
+				return sx < sy
+			}
+			return a.PID < b.PID
+		}
+
 		var x, y float64
 		switch m.sortKey {
 		case "mem":
 			x, y = float64(a.RSS), float64(b.RSS)
+		case "read":
+			x, y = a.ReadBps, b.ReadBps
+		case "write":
+			x, y = a.WriteBps, b.WriteBps
 		case "io":
 			x, y = a.ReadBps+a.WriteBps, b.ReadBps+b.WriteBps
 		case "pid":
@@ -71,6 +89,32 @@ func (m model) procRows() []collect.Proc {
 	}
 	sort.SliceStable(list, less)
 	return list
+}
+
+// sortText returns the two values to compare for a text column, and whether
+// the key names a text column at all.
+func sortText(key string, a, b collect.Proc) (x, y string, ok bool) {
+	switch key {
+	case "user":
+		return a.User, b.User, true
+	case "state":
+		return a.State, b.State, true
+	case "unit":
+		return unitName(a.Unit), unitName(b.Unit), true
+	case "command":
+		return cmdOf(a), cmdOf(b), true
+	}
+	return "", "", false
+}
+
+// defaultSortDir picks the direction a column should sort the first time you
+// pick it: biggest-first for the "who is using all the X" columns, A-to-Z for
+// the rest.
+func defaultSortDir(key string) int {
+	if numericSort(key) {
+		return -1
+	}
+	return 1
 }
 
 // portRows returns the filtered, sorted socket list for the Ports tab.

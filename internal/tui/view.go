@@ -8,14 +8,38 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-func (m model) View() string {
-	if m.quitting {
-		return ""
-	}
+// maxContentW caps how wide the UI is allowed to grow. Past roughly this
+// width a table stops looking spacious and starts looking broken: the slack
+// all lands in one column, so a full-screen terminal shows "eth0" in a
+// 66-character cell. Everything is drawn at this width and centred instead.
+const maxContentW = 132
+
+// contentW is the width everything is rendered at, and padLeft is the left
+// margin that centres it. Mouse hit-testing subtracts the same margin, so
+// the two can't disagree about where a column starts.
+func (m model) contentW() int {
 	w := m.width
 	if w <= 0 {
 		w = 100
 	}
+	if w > maxContentW {
+		return maxContentW
+	}
+	return w
+}
+
+func (m model) padLeft() int {
+	if m.width <= maxContentW {
+		return 0
+	}
+	return (m.width - maxContentW) / 2
+}
+
+func (m model) View() string {
+	if m.quitting {
+		return ""
+	}
+	w := m.contentW()
 	h := m.height
 	if h <= 0 {
 		h = 30
@@ -43,8 +67,6 @@ func (m model) View() string {
 	}
 	b.WriteString("\n")
 
-	b.WriteString(m.renderFooter(w))
-
 	// Always emit the same total line count across frames. Two consecutive
 	// live-refresh frames can legitimately differ in line count (the
 	// process list shrinks by one row, say), and without this, bubbletea's
@@ -62,11 +84,21 @@ func (m model) View() string {
 	if target < 1 {
 		target = 1
 	}
+	// The footer is pinned to the last row rather than left floating right
+	// under the content: a key bar sitting mid-screen with blank rows beneath
+	// it reads as an unfinished layout. Anchored, short tabs look deliberate.
 	lines := strings.Split(b.String(), "\n")
-	if len(lines) < target {
-		lines = append(lines, make([]string, target-len(lines))...)
-	} else if len(lines) > target {
-		lines = lines[:target]
+	if body := target - 1; len(lines) < body {
+		lines = append(lines, make([]string, body-len(lines))...)
+	} else if len(lines) > body {
+		lines = lines[:body]
+	}
+	lines = append(lines, m.renderFooter(w))
+	if pad := m.padLeft(); pad > 0 {
+		margin := strings.Repeat(" ", pad)
+		for i, l := range lines {
+			lines[i] = margin + l
+		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -204,6 +236,7 @@ func max3(a, b, c float64) float64 {
 }
 
 func (m model) renderTabs(w int) string {
+	alert := m.tabAlerts()
 	var parts []string
 	for _, r := range tabRegions(m.tabCounts()) {
 		// Render each segment from plain text only — wrapping a string that
@@ -222,11 +255,57 @@ func (m model) renderTabs(w int) string {
 		}
 		part := stTabOff.Render(r.base)
 		if r.countText != "" {
-			part += stFaint.Render(r.countText)
+			// A count that's a problem is the one thing worth colouring in
+			// here: it turns the tab bar into "where should I look next"
+			// instead of a row of trivia.
+			style := stFaint
+			if alert[r.t] {
+				style = stCrit
+			}
+			part += style.Render(r.countText)
 		}
 		parts = append(parts, part)
 	}
-	return strings.Join(parts, " ")
+	// A separator between tabs, not a bare space: it binds each count to the
+	// tab it belongs to. Without it "Processes 350  2 Ports" reads as one
+	// run of words and the numbers look like they're floating loose.
+	return strings.Join(parts, stFaint.Render("│"))
+}
+
+// tabAlerts marks the tabs whose contents are currently a problem.
+func (m model) tabAlerts() map[tab]bool {
+	s := m.snap
+	out := map[tab]bool{}
+	if s == nil {
+		return out
+	}
+	for _, p := range s.Procs {
+		if p.State == "D" {
+			out[tabProcs] = true
+			break
+		}
+	}
+	for _, d := range s.Disks {
+		if d.Util >= 95 || d.AwaitMs >= 100 {
+			out[tabDisks] = true
+		}
+	}
+	for _, fs := range s.FS {
+		if fs.Stale || fs.UsedPct >= 95 || fs.InodePct >= 90 {
+			out[tabDisks] = true
+		}
+	}
+	for _, n := range s.NICs {
+		if n.ErrPs > 0 || n.DropPs >= 1 {
+			out[tabNet] = true
+		}
+	}
+	for _, u := range s.Units {
+		if u.Active == "failed" {
+			out[tabUnits] = true
+		}
+	}
+	return out
 }
 
 func (m model) tabCounts() map[tab]int {
@@ -240,14 +319,28 @@ func (m model) tabCounts() map[tab]int {
 			}
 		}
 	}
+	// Units counts what's broken, not what exists: "225 units" is trivia you
+	// can't act on, "3 failed" is the reason to open the tab.
 	units := -1
 	if s.UnitsCollected {
-		units = len(s.Units)
+		failed := 0
+		for _, u := range s.Units {
+			if u.Active == "failed" {
+				failed++
+			}
+		}
+		if failed > 0 {
+			units = failed // a red count that only shows up when it means something
+		}
 	}
+	// Disks and Network carry no count at all — five devices and four
+	// interfaces are facts you can see the moment you open the tab, so
+	// putting them in the tab bar only adds numbers to skip over.
+	//
 	// Processes counts what the list actually shows, not every PID on the
-	// system — a count that disagrees with the rows under it is a bug report
+	// system: a count that disagrees with the rows under it is a bug report
 	// waiting to happen.
-	return map[tab]int{tabProcs: len(m.procRows()), tabPorts: listen, tabDisks: len(s.Disks), tabNet: len(s.NICs), tabUnits: units}
+	return map[tab]int{tabProcs: len(m.procRows()), tabPorts: listen, tabDisks: -1, tabNet: -1, tabUnits: units}
 }
 
 // hrule draws a thin horizontal rule under the tab bar, separating chrome
@@ -311,15 +404,21 @@ func (m model) renderFooter(w int) string {
 		}
 		keys = append(keys, [2]string{"j", "journal"}, [2]string{"esc", "close"})
 	default:
-		keys = [][2]string{{"1-5/←→", "tabs"}, {"↑↓", "select"}}
-		if m.tab != tabUnits {
-			keys = append(keys, [2]string{"enter", "open"})
+		// Only advertise keys that actually do something on this tab. Disks
+		// and Network have no selectable rows, and a footer offering "enter
+		// open" where nothing opens teaches people not to trust the footer.
+		keys = [][2]string{{"1-5/←→", "tabs"}}
+		selectable := m.tab == tabProcs || m.tab == tabPorts || m.tab == tabUnits
+		if selectable {
+			keys = append(keys, [2]string{"↑↓", "select"})
 		}
 		if m.tab == tabProcs || m.tab == tabPorts {
-			keys = append(keys, [2]string{"/", "filter"})
+			keys = append(keys, [2]string{"enter", "open"}, [2]string{"/", "filter"})
 		}
 		if m.tab == tabProcs {
-			keys = append(keys, [2]string{"s", "sort: " + m.sortKey})
+			// Not "sort: cpu" — the arrow in the column header already says
+			// which column, and says it where you're looking.
+			keys = append(keys, [2]string{"s", "sort"}, [2]string{"K", "kernel"})
 		}
 		if m.tab == tabPorts {
 			keys = append(keys, [2]string{"a", "all sockets"})

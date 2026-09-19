@@ -96,30 +96,35 @@ func (m model) renderProcs(w, h int) string {
 		return stMuted.Render(msg)
 	}
 
-	// The Unit column is the first to go on a narrow terminal — matching the
-	// original web UI's own responsive behavior (it hid the same column
-	// below 980px) rather than squeezing Command down to an unreadable
-	// sliver just to keep every column present.
-	unitW := 16
-	noUnitFixed, noUnitGaps := gutterW+6+11+3+6+9+9+9, 8
-	withUnitFixed, withUnitGaps := noUnitFixed+unitW, 9
-	cmdWWithUnit := w - withUnitFixed - withUnitGaps*sepW
-	showUnit := cmdWWithUnit >= 18
-	cmdW := cmdWWithUnit
-	if !showUnit {
-		cmdW = w - noUnitFixed - noUnitGaps*sepW
-	}
-	if cmdW < 12 {
-		cmdW = 12
+	cols := procColumns(w)
+	showUnit := false
+	var unitW, cmdW int
+	for _, c := range cols {
+		switch c.key {
+		case "unit":
+			showUnit, unitW = true, c.w
+		case "command":
+			cmdW = c.w
+		}
 	}
 
-	headerCells := []string{centerCell("", gutterW, stHeader), centerCell("PID", 6, stHeader), centerCell("USER", 11, stHeader), centerCell("ST", 3, stHeader),
-		centerCell("CPU%", 6, stHeader), centerCell("MEM", 9, stHeader), centerCell("READ", 9, stHeader), centerCell("WRITE", 9, stHeader)}
-	if showUnit {
-		headerCells = append(headerCells, centerCell("UNIT", unitW, stHeader))
+	// The sorted column is named in its own header rather than only in the
+	// footer: an arrow on the column you're looking at is how every table in
+	// every tool says "this is the order", and it's what makes the header
+	// look clickable in the first place.
+	headerCells := make([]string, 0, len(cols))
+	for _, c := range cols {
+		title, style := c.title, stHdrCell
+		if c.key != "" && c.key == m.sortKey {
+			arrow := "▾"
+			if m.sortDir > 0 {
+				arrow = "▴"
+			}
+			title, style = c.title+arrow, stHdrCellOn
+		}
+		headerCells = append(headerCells, centerCell(title, c.w, style))
 	}
-	headerCells = append(headerCells, centerCell("COMMAND", cmdW, stHeader))
-	header := joinCols(headerCells...)
+	header := tableHeader(w, headerCells...)
 
 	var lines []string
 	lines = append(lines, header)
@@ -173,8 +178,8 @@ func (m model) renderPorts(w, h int) string {
 	if remoteW < 10 {
 		remoteW = 10
 	}
-	header := joinCols(centerCell("", gutterW, stHeader), centerCell("PORT", 6, stHeader), centerCell("PROTO", 6, stHeader), centerCell("ADDRESS", 15, stHeader),
-		centerCell("STATE", 11, stHeader), centerCell("PROCESS", 16, stHeader), centerCell("PID", 6, stHeader), centerCell("REMOTE", remoteW, stHeader))
+	header := tableHeader(w, centerCell("", gutterW, stHdrCell), centerCell("PORT", 6, stHdrCell), centerCell("PROTO", 6, stHdrCell), centerCell("ADDRESS", 15, stHdrCell),
+		centerCell("STATE", 11, stHdrCell), centerCell("PROCESS", 16, stHdrCell), centerCell("PID", 6, stHdrCell), centerCell("REMOTE", remoteW, stHdrCell))
 
 	var lines []string
 	lines = append(lines, header)
@@ -317,9 +322,9 @@ func (m model) renderDisks(w, h int) string {
 	if len(m.snap.Disks) == 0 {
 		b.WriteString(stMuted.Render("No block devices.") + "\n")
 	} else {
-		b.WriteString(joinCols(centerCell("DEVICE", 10, stHeader), centerCell("R/S", 7, stHeader), centerCell("W/S", 7, stHeader),
-			centerCell("READ", 9, stHeader), centerCell("WRITE", 9, stHeader), centerCell("AWAIT", 8, stHeader),
-			centerCell("QUEUE", 6, stHeader), centerCell("UTIL%", 6, stHeader)) + "\n")
+		b.WriteString(tableHeader(w, centerCell("DEVICE", 10, stHdrCell), centerCell("R/S", 7, stHdrCell), centerCell("W/S", 7, stHdrCell),
+			centerCell("READ", 9, stHdrCell), centerCell("WRITE", 9, stHdrCell), centerCell("AWAIT", 8, stHdrCell),
+			centerCell("QUEUE", 6, stHdrCell), centerCell("UTIL%", 6, stHdrCell)) + "\n")
 		lines := capRows(m.snap.Disks, half, func(d collect.Disk) string {
 			return joinCols(cell(d.Name, 10, false, stPlain.Bold(true)), cell(f1(d.RIOPS), 7, true, stPlain), cell(f1(d.WIOPS), 7, true, stPlain),
 				cell(rateFmt(d.RBps), 9, true, stPlain), cell(rateFmt(d.WBps), 9, true, stPlain),
@@ -336,12 +341,12 @@ func (m model) renderDisks(w, h int) string {
 	if len(m.snap.FS) == 0 {
 		b.WriteString(stMuted.Render("No filesystems."))
 	} else {
-		mountW := w - (8 + 9 + 9 + 7 + 7) - 5*sepW
+		mountW := nameColW(w, 46, []int{8, 9, 9, 7, 7})
 		if mountW < 10 {
 			mountW = 10
 		}
-		b.WriteString(joinCols(centerCell("MOUNT", mountW, stHeader), centerCell("TYPE", 8, stHeader), centerCell("SIZE", 9, stHeader),
-			centerCell("FREE", 9, stHeader), centerCell("USED%", 7, stHeader), centerCell("INODE%", 7, stHeader)) + "\n")
+		b.WriteString(tableHeader(w, centerCell("MOUNT", mountW, stHdrCell), centerCell("TYPE", 8, stHdrCell), centerCell("SIZE", 9, stHdrCell),
+			centerCell("FREE", 9, stHdrCell), centerCell("USED%", 7, stHdrCell), centerCell("INODE%", 7, stHdrCell)) + "\n")
 		lines := capRows(m.snap.FS, half, func(f collect.FS) string {
 			if f.Stale {
 				return cell(f.Mount, mountW, false, stPlain.Bold(true)) + colSep + stCrit.Render(truncate("not responding — statfs is hanging (dead network mount?)", w-mountW-sepW))
@@ -382,8 +387,8 @@ func (m model) renderDiskProcs(w, h int) string {
 	if cmdW < 12 {
 		cmdW = 12
 	}
-	header := joinCols(centerCell("PID", 6, stHeader), centerCell("USER", 11, stHeader), centerCell("ST", 3, stHeader),
-		centerCell("READ", 9, stHeader), centerCell("WRITE", 9, stHeader), centerCell("COMMAND", cmdW, stHeader))
+	header := tableHeader(w, centerCell("PID", 6, stHdrCell), centerCell("USER", 11, stHdrCell), centerCell("ST", 3, stHdrCell),
+		centerCell("READ", 9, stHdrCell), centerCell("WRITE", 9, stHdrCell), centerCell("COMMAND", cmdW, stHdrCell))
 	lines := capRows(procs, h-1, func(p collect.Proc) string {
 		return joinCols(cell(strconv.Itoa(int(p.PID)), 6, true, stPlain), cell(p.User, 11, false, stMuted),
 			cell(p.State, 3, false, stateStyle(p.State)), ioCell(p.IOHidden, p.ReadBps, 9, false), ioCell(p.IOHidden, p.WriteBps, 9, false),
@@ -416,12 +421,12 @@ func (m model) renderNet(w, h int) string {
 	if len(m.snap.NICs) == 0 {
 		b.WriteString(stMuted.Render("No interfaces."))
 	} else {
-		nameW := w - (9 + 9 + 8 + 8 + 7 + 7) - 6*sepW
+		nameW := nameColW(w, 24, []int{9, 9, 8, 8, 7, 7})
 		if nameW < 8 {
 			nameW = 8
 		}
-		b.WriteString(joinCols(centerCell("NAME", nameW, stHeader), centerCell("RX", 9, stHeader), centerCell("TX", 9, stHeader),
-			centerCell("PPS IN", 8, stHeader), centerCell("PPS OUT", 8, stHeader), centerCell("ERR/S", 7, stHeader), centerCell("DROP/S", 7, stHeader)) + "\n")
+		b.WriteString(tableHeader(w, centerCell("NAME", nameW, stHdrCell), centerCell("RX", 9, stHdrCell), centerCell("TX", 9, stHdrCell),
+			centerCell("PPS IN", 8, stHdrCell), centerCell("PPS OUT", 8, stHdrCell), centerCell("ERR/S", 7, stHdrCell), centerCell("DROP/S", 7, stHdrCell)) + "\n")
 		// A container host can have dozens to hundreds of veth interfaces —
 		// cap the list against the tab's height budget like every other
 		// table does, instead of printing an unbounded interface list.
