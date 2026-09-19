@@ -46,6 +46,7 @@ var (
 	// A section bar outranks a column-header bar, so it's the brighter of
 	// the two: section > columns > rows, readable at a glance.
 	stSection   = lipgloss.NewStyle().Foreground(colText).Bold(true).Background(colSecBg)
+	stSectionOn = lipgloss.NewStyle().Foreground(colBg).Bold(true).Background(colAccent)
 	stTabOn     = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colAccent)
 	stTabOnCnt  = lipgloss.NewStyle().Foreground(colBg).Background(colAccent)
 	stTabOff    = lipgloss.NewStyle().Foreground(colMuted)
@@ -104,6 +105,20 @@ func sectionBar(w int, title string) string {
 	bar := stSection.Render(" " + title + " ")
 	if n := max0(w - visLen(bar)); n > 0 {
 		bar += stSection.Render(strings.Repeat(" ", n))
+	}
+	return bar
+}
+
+// focusBar is a section bar that shows whether its list is the one the arrow
+// keys are driving. A panel with two navigable lists has to say which one has
+// the cursor, or the keys feel broken.
+func focusBar(w int, title string, focused bool) string {
+	if !focused {
+		return sectionBar(w, title)
+	}
+	bar := stSectionOn.Render(" ▸ " + title + " ")
+	if n := max0(w - visLen(bar)); n > 0 {
+		bar += stSectionOn.Render(strings.Repeat(" ", n))
 	}
 	return bar
 }

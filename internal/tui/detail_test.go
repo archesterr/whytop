@@ -115,3 +115,76 @@ func TestUnitMemorySumsItsProcesses(t *testing.T) {
 func keyRunes(s string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
+
+// The panel has two navigable lists, so the arrows have to drive the focused
+// one and the descriptor actions have to apply to the row under the cursor.
+func TestDetailFocusSwitchesWhichListTheArrowsDrive(t *testing.T) {
+	snap := detailSnap()
+	d := &detailState{pid: 10, loaded: true, extra: collect.Extra{FDs: 3, OpenFiles: []collect.OpenFile{
+		{FD: "0", Target: "/dev/null", Kind: "file"},
+		{FD: "1", Target: "/var/log/app.log (deleted)", Kind: "deleted"},
+		{FD: "2", Target: "socket:[1]", Kind: "socket"},
+	}}}
+	m := model{snap: snap, width: 120, detail: d}
+
+	// Tree has focus to begin with: down moves the tree, not the files.
+	m2, _ := m.handleDetailKey(tea.KeyMsg{Type: tea.KeyDown})
+	if m2.(model).detail.treeSel != 1 || m2.(model).detail.fileSel != 0 {
+		t.Errorf("with the tree focused, down should move the tree: tree=%d files=%d",
+			m2.(model).detail.treeSel, m2.(model).detail.fileSel)
+	}
+
+	// Tab moves focus to the files; now down moves the file cursor.
+	m3, _ := m.handleDetailKey(tea.KeyMsg{Type: tea.KeyTab})
+	if m3.(model).detail.focus != focusFiles {
+		t.Fatal("tab should move focus to the open files")
+	}
+	m4, _ := m3.(model).handleDetailKey(tea.KeyMsg{Type: tea.KeyDown})
+	if m4.(model).detail.fileSel != 1 {
+		t.Errorf("with the files focused, down should move the file cursor, got %d", m4.(model).detail.fileSel)
+	}
+	if f, ok := m4.(model).selectedFile(); !ok || f.FD != "1" {
+		t.Errorf("selected file should be the row under the cursor, got %+v", f)
+	}
+}
+
+// Both descriptor actions are destructive enough that they must never fire
+// straight off a keypress, and never at all while the tree has focus.
+func TestFileActionsNeedFocusAndAlwaysConfirm(t *testing.T) {
+	d := &detailState{pid: 10, loaded: true, extra: collect.Extra{FDs: 1, OpenFiles: []collect.OpenFile{
+		{FD: "7", Target: "/var/log/big.log (deleted)", Kind: "deleted"},
+	}}}
+	m := model{snap: detailSnap(), width: 120, detail: d}
+
+	for _, key := range []string{"c", "t"} {
+		got, cmd := m.handleDetailKey(keyRunes(key))
+		if got.(model).confirm != nil || cmd != nil {
+			t.Errorf("%q acted while the tree had focus", key)
+		}
+	}
+
+	m.detail.focus = focusFiles
+	for _, key := range []string{"c", "t"} {
+		got, cmd := m.handleDetailKey(keyRunes(key))
+		gm := got.(model)
+		if gm.confirm == nil {
+			t.Fatalf("%q should ask before touching a descriptor", key)
+		}
+		if cmd != nil {
+			t.Errorf("%q should not act until the confirm is answered", key)
+		}
+		if !strings.Contains(gm.confirm.prompt, "7") {
+			t.Errorf("%q prompt should name the descriptor: %q", key, gm.confirm.prompt)
+		}
+	}
+
+	// Closing is the dangerous one of the two and is marked as such.
+	got, _ := m.handleDetailKey(keyRunes("c"))
+	if !got.(model).confirm.danger {
+		t.Error("closing a descriptor should use the danger confirm styling")
+	}
+	got, _ = m.handleDetailKey(keyRunes("t"))
+	if got.(model).confirm.danger {
+		t.Error("truncating leaves the process running and shouldn't be styled as dangerous")
+	}
+}

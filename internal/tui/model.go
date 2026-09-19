@@ -46,6 +46,13 @@ type confirmState struct {
 	run    func() tea.Cmd
 }
 
+type detailFocus int
+
+const (
+	focusTree detailFocus = iota
+	focusFiles
+)
+
 type detailState struct {
 	pid            int32
 	extra          collect.Extra
@@ -53,7 +60,11 @@ type detailState struct {
 	restartBlocked string
 	loaded         bool
 	treeSel        int
-	journal        string
+	// focus decides which of the panel's two lists the arrow keys drive, and
+	// which one the descriptor actions apply to.
+	focus   detailFocus
+	fileSel int
+	journal string
 	// follow re-reads the journal on every refresh tick, which is what
 	// `journalctl -u <unit> -f` gives you at a shell. It's on by default:
 	// you open a process's panel to watch what it's doing, and a log that

@@ -174,12 +174,26 @@ func (m model) renderPorts(w, h int) string {
 		}
 		return stMuted.Render(msg)
 	}
-	remoteW := w - (gutterW + 6 + 6 + 15 + 11 + 16 + 6) - 7*sepW
+	// A socket's owning process gets the same MEM column every other table
+	// shows it with — it's the first thing you want after "which process is
+	// this". It's the column that goes when the terminal is too narrow.
+	const memW = 9
+	fixed := gutterW + 6 + 6 + 15 + 11 + 16 + 6
+	remoteW := w - fixed - memW - 8*sepW
+	showMem := remoteW >= 12
+	if !showMem {
+		remoteW = w - fixed - 7*sepW
+	}
 	if remoteW < 10 {
 		remoteW = 10
 	}
-	header := tableHeader(w, hdrCell("", gutterW, stHdrCell), hdrCell("PORT", 6, stHdrCell), hdrCell("PROTO", 6, stHdrCell), hdrCell("ADDRESS", 15, stHdrCell),
-		hdrCell("STATE", 11, stHdrCell), hdrCell("PROCESS", 16, stHdrCell), hdrCell("PID", 6, stHdrCell), hdrCell("REMOTE", remoteW, stHdrCell))
+	headerCells := []string{hdrCell("", gutterW, stHdrCell), hdrCell("PORT", 6, stHdrCell), hdrCell("PROTO", 6, stHdrCell), hdrCell("ADDRESS", 15, stHdrCell),
+		hdrCell("STATE", 11, stHdrCell), hdrCell("PROCESS", 16, stHdrCell), hdrCell("PID", 6, stHdrCell)}
+	if showMem {
+		headerCells = append(headerCells, hdrCell("MEM", memW, stHdrCell))
+	}
+	headerCells = append(headerCells, hdrCell("REMOTE", remoteW, stHdrCell))
+	header := tableHeader(w, headerCells...)
 
 	var lines []string
 	lines = append(lines, header)
@@ -221,11 +235,21 @@ func (m model) renderPorts(w, h int) string {
 		if c.PID > 0 {
 			pidStr = strconv.Itoa(int(c.PID))
 		}
-		row := joinColsSel(sel, gutterCell(sel),
+		rowCells := []string{gutterCell(sel),
 			cell(strconv.Itoa(int(c.LPort)), 6, true, withBG(stPlain.Bold(true), sel)), cell(c.Proto, 6, false, withBG(stMuted, sel)),
 			cell(addr, 15, false, withBG(addrStyle, sel)), cell(c.State, 11, false, withBG(stStyle, sel)), pad(name, 16, sel),
-			cell(pidStr, 6, true, withBG(stPlain, sel)), cell(c.Remote, remoteW, false, withBG(stMuted, sel)))
-		lines = append(lines, row)
+			cell(pidStr, 6, true, withBG(stPlain, sel))}
+		if showMem {
+			// "–" not "0 B" when the process isn't visible: no measurement,
+			// rather than a measurement of nothing.
+			memText, memStyle := "–", withBG(stFaint, sel)
+			if ok {
+				memText, memStyle = bytesFmt(float64(proc.RSS)), withBG(stPlain, sel)
+			}
+			rowCells = append(rowCells, cell(memText, memW, true, memStyle))
+		}
+		rowCells = append(rowCells, cell(c.Remote, remoteW, false, withBG(stMuted, sel)))
+		lines = append(lines, joinColsSel(sel, rowCells...))
 	}
 	if end < len(list) || start > 0 {
 		lines = append(lines, stFaint.Render(scrollNotice(len(list), start, end)))
@@ -415,15 +439,16 @@ func (m model) renderDiskProcs(w, h int) string {
 		}
 		return procs[i].ReadBps+procs[i].WriteBps > procs[j].ReadBps+procs[j].WriteBps
 	})
-	cmdW := w - (6 + 11 + 3 + 9 + 9) - 4*sepW
+	cmdW := w - (6 + 11 + 3 + 9 + 9 + 9) - 5*sepW
 	if cmdW < 12 {
 		cmdW = 12
 	}
 	header := tableHeader(w, hdrCell("PID", 6, stHdrCell), hdrCell("USER", 11, stHdrCell), hdrCell("ST", 3, stHdrCell),
-		hdrCell("READ", 9, stHdrCell), hdrCell("WRITE", 9, stHdrCell), hdrCell("COMMAND", cmdW, stHdrCell))
+		hdrCell("MEM", 9, stHdrCell), hdrCell("READ", 9, stHdrCell), hdrCell("WRITE", 9, stHdrCell), hdrCell("COMMAND", cmdW, stHdrCell))
 	lines := capRows(procs, h-1, func(p collect.Proc) string {
 		return joinCols(cell(strconv.Itoa(int(p.PID)), 6, true, stPlain), cell(p.User, 11, false, stMuted),
-			cell(p.State, 3, false, stateStyle(p.State)), ioCell(p.IOHidden, p.ReadBps, 9, false), ioCell(p.IOHidden, p.WriteBps, 9, false),
+			cell(p.State, 3, false, stateStyle(p.State)), cell(bytesFmt(float64(p.RSS)), 9, true, stPlain),
+			ioCell(p.IOHidden, p.ReadBps, 9, false), ioCell(p.IOHidden, p.WriteBps, 9, false),
 			cell(cmdOf(p), cmdW, false, stMuted))
 	})
 	return header + "\n" + strings.Join(lines, "\n")
