@@ -230,15 +230,18 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc":
 		m.detail = nil
+	case "tab":
+		// Two navigable lists in one panel, so tab says which one the arrows
+		// drive — and which one c/t act on.
+		if m.detail.focus == focusTree {
+			m.detail.focus = focusFiles
+		} else {
+			m.detail.focus = focusTree
+		}
 	case "up":
-		if m.detail.treeSel > 0 {
-			m.detail.treeSel--
-		}
+		m.detail.moveDetailSel(-1, len(m.currentTree()), len(m.openFiles()))
 	case "down":
-		nodes := m.currentTree()
-		if m.detail.treeSel < len(nodes)-1 {
-			m.detail.treeSel++
-		}
+		m.detail.moveDetailSel(1, len(m.currentTree()), len(m.openFiles()))
 	case "enter":
 		nodes := m.currentTree()
 		if m.detail.treeSel < len(nodes) {
@@ -257,6 +260,27 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detail.follow = !m.detail.follow
 		if m.detail.follow {
 			return m, m.loadJournalCmd(m.detail.pid)
+		}
+	case "t":
+		f, ok := m.selectedFile()
+		if m.detail.focus != focusFiles || !ok {
+			break
+		}
+		pid, fd, target := m.detail.pid, f.FD, f.Target
+		m.confirm = &confirmState{
+			prompt: fmt.Sprintf("Empty %s (fd %s)? The space comes back and the process keeps running. [y/N]", truncate(target, 48), fd),
+			run:    func() tea.Cmd { return doTruncateFD(pid, fd) },
+		}
+	case "c":
+		f, ok := m.selectedFile()
+		if m.detail.focus != focusFiles || !ok {
+			break
+		}
+		pid, fd, target := m.detail.pid, f.FD, f.Target
+		m.confirm = &confirmState{
+			danger: true,
+			prompt: fmt.Sprintf("Close fd %s (%s)? The process is not told, and may fail or crash next time it uses it. [y/N]", fd, truncate(target, 40)),
+			run:    func() tea.Cmd { return doCloseFD(pid, fd) },
 		}
 	case "x", "X":
 		p, ok := m.procByPID(m.detail.pid)

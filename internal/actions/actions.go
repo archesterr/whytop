@@ -157,3 +157,70 @@ func Journal(unit string, user bool, pid int32, lines int) string {
 	}
 	return text
 }
+
+// TruncateFD empties a file a process still holds open, without closing it.
+//
+// This is the fix for the classic "df says the disk is full but du can't find
+// anything to delete": a file that was unlinked while a process still had it
+// open, whose space the kernel won't reclaim until the last descriptor on it
+// goes away. Truncating through /proc/<pid>/fd/<n> returns the space straight
+// away and leaves the descriptor valid, so the process keeps running. It is
+// much safer than closing the descriptor, and it is what you actually want
+// nine times out of ten.
+func TruncateFD(pid int32, fd string) error {
+	if err := checkFDTarget(pid, fd); err != nil {
+		return err
+	}
+	path := fmt.Sprintf("/proc/%d/fd/%s", pid, fd)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		return fmt.Errorf("truncate %s: %w", path, err)
+	}
+	return f.Close()
+}
+
+// CloseFD closes a file descriptor inside a running process.
+//
+// The kernel deliberately offers no syscall for "close descriptor N in
+// process P": the owning process has no idea the descriptor vanished and will
+// get EBADF the next time it touches it, which can wedge it, crash it, or
+// corrupt whatever it was midway through writing. The only way to do it is to
+// attach a debugger and call close() in the target's own context, which is
+// what this shells out to gdb for. Callers must confirm with the user first,
+// and should offer TruncateFD instead wherever it would do.
+func CloseFD(pid int32, fd string) error {
+	if err := checkFDTarget(pid, fd); err != nil {
+		return err
+	}
+	if _, err := exec.LookPath("gdb"); err != nil {
+		return errors.New("closing a descriptor in a running process needs gdb installed — the kernel has no syscall for it")
+	}
+	n, _ := strconv.Atoi(fd)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gdb", "-p", strconv.Itoa(int(pid)), "--batch",
+		"-ex", fmt.Sprintf("call (int)close(%d)", n)).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("gdb close(%d) on PID %d: %v", n, pid, err)
+	}
+	if strings.Contains(string(out), "ptrace:") {
+		return errors.New("gdb could not attach — needs root, or /proc/sys/kernel/yama/ptrace_scope is restricting it")
+	}
+	return nil
+}
+
+// checkFDTarget refuses the descriptors that must never be touched: PID 1's,
+// whytop's own (closing those breaks the tool doing the closing), and
+// anything that isn't a plain descriptor number.
+func checkFDTarget(pid int32, fd string) error {
+	switch {
+	case pid <= 1:
+		return fmt.Errorf("refusing to touch a descriptor of PID %d", pid)
+	case int(pid) == os.Getpid():
+		return errors.New("refusing to touch whytop's own descriptors")
+	}
+	if n, err := strconv.Atoi(fd); err != nil || n < 0 {
+		return fmt.Errorf("not a descriptor number: %q", fd)
+	}
+	return nil
+}

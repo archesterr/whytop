@@ -6,6 +6,9 @@ import (
 	"strconv"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/archesterr/whytop/internal/actions"
 	"github.com/archesterr/whytop/internal/collect"
 )
 
@@ -132,7 +135,7 @@ func (m model) renderDetail(w, h int) string {
 		}
 	}
 
-	b.WriteString(sectionBar(w, fmt.Sprintf("PROCESS TREE (%d)", len(nodes))) + "\n")
+	b.WriteString(focusBar(w, fmt.Sprintf("PROCESS TREE (%d)", len(nodes)), d.focus == focusTree) + "\n")
 	b.WriteString(m.renderTree(nodes, w, treeH) + "\n")
 
 	b.WriteString(sectionBar(w, "SOCKETS") + "\n")
@@ -144,7 +147,7 @@ func (m model) renderDetail(w, h int) string {
 	if d.loaded && d.extra.FDs >= 0 {
 		filesHeader = fmt.Sprintf("OPEN FILES (%d)", d.extra.FDs)
 	}
-	b.WriteString(sectionBar(w, filesHeader) + "\n")
+	b.WriteString(focusBar(w, filesHeader, d.focus == focusFiles) + "\n")
 	b.WriteString(m.renderOpenFiles(w, filesH) + "\n")
 
 	journalTitle := "JOURNAL"
@@ -216,6 +219,27 @@ func (m model) renderSockets(nodes []collect.Proc, w, h int) string {
 // (eventfd/timerfd/etc.) last.
 var fdKindRank = map[string]int{"file": 0, "deleted": 0, "pipe": 1, "socket": 2, "anon": 3}
 
+// openFiles is the list in the order it's drawn. Both the renderer and the
+// descriptor actions read it, so the row under the cursor is always the
+// descriptor that gets acted on.
+func (m model) openFiles() []collect.OpenFile {
+	if m.detail == nil {
+		return nil
+	}
+	files := make([]collect.OpenFile, len(m.detail.extra.OpenFiles))
+	copy(files, m.detail.extra.OpenFiles)
+	sort.SliceStable(files, func(i, j int) bool { return fdKindRank[files[i].Kind] < fdKindRank[files[j].Kind] })
+	return files
+}
+
+func (m model) selectedFile() (collect.OpenFile, bool) {
+	files := m.openFiles()
+	if m.detail == nil || m.detail.fileSel < 0 || m.detail.fileSel >= len(files) {
+		return collect.OpenFile{}, false
+	}
+	return files[m.detail.fileSel], true
+}
+
 func (m model) renderOpenFiles(w, h int) string {
 	d := m.detail
 	if !d.loaded {
@@ -227,26 +251,39 @@ func (m model) renderOpenFiles(w, h int) string {
 		}
 		return stMuted.Render("No open files.")
 	}
-	files := make([]collect.OpenFile, len(d.extra.OpenFiles))
-	copy(files, d.extra.OpenFiles)
-	sort.SliceStable(files, func(i, j int) bool { return fdKindRank[files[i].Kind] < fdKindRank[files[j].Kind] })
+	files := m.openFiles()
 
 	fdW, kindW := 4, 8
-	targetW := max0(w - fdW - kindW - 2*sepW)
+	targetW := max0(w - gutterW - fdW - kindW - 3*sepW)
 	if targetW < 10 {
 		targetW = 10
 	}
-	header := tableHeader(w, hdrCell("FD", fdW, stHdrCell), hdrCell("KIND", kindW, stHdrCell), hdrCell("TARGET", targetW, stHdrCell))
-	lines := capRows(files, h-1, func(f collect.OpenFile) string {
+	header := tableHeader(w, hdrCell("", gutterW, stHdrCell), hdrCell("FD", fdW, stHdrCell),
+		hdrCell("KIND", kindW, stHdrCell), hdrCell("TARGET", targetW, stHdrCell))
+
+	selIdx := -1
+	if d.focus == focusFiles {
+		selIdx = d.fileSel
+	}
+	start, end := windowRows(len(files), selIdx, h-1)
+	lines := []string{header}
+	for i := start; i < end; i++ {
+		f := files[i]
+		sel := i == selIdx
 		style := stMuted
 		if f.Kind == "deleted" {
-			style = stWarn
+			style = stWarn // deleted but still open: this is what eats a disk
 		} else if f.Kind == "file" {
 			style = stPlain
 		}
-		return joinCols(cell(f.FD, fdW, true, stFaint), cell(f.Kind, kindW, false, stFaint), cell(f.Target, targetW, false, style))
-	})
-	return header + "\n" + strings.Join(lines, "\n")
+		lines = append(lines, joinColsSel(sel, gutterCell(sel),
+			cell(f.FD, fdW, true, withBG(stFaint, sel)), cell(f.Kind, kindW, false, withBG(stFaint, sel)),
+			cell(f.Target, targetW, false, withBG(style, sel))))
+	}
+	if end < len(files) || start > 0 {
+		lines = append(lines, stFaint.Render(scrollNotice(len(files), start, end)))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func ioCellText(hidden bool, v float64) string {
@@ -327,4 +364,41 @@ func renderJournal(text string, w, h int) string {
 		lines[i] = truncate(l, w)
 	}
 	return stMuted.Render(strings.Join(lines, "\n"))
+}
+
+// moveDetailSel moves whichever of the panel's two lists currently has focus.
+func (d *detailState) moveDetailSel(delta, tree, files int) {
+	sel, n := &d.treeSel, tree
+	if d.focus == focusFiles {
+		sel, n = &d.fileSel, files
+	}
+	if n == 0 {
+		*sel = 0
+		return
+	}
+	*sel += delta
+	if *sel < 0 {
+		*sel = 0
+	}
+	if *sel > n-1 {
+		*sel = n - 1
+	}
+}
+
+func doTruncateFD(pid int32, fd string) tea.Cmd {
+	return func() tea.Msg {
+		if err := actions.TruncateFD(pid, fd); err != nil {
+			return actionMsg{ok: false, text: err.Error()}
+		}
+		return actionMsg{ok: true, text: fmt.Sprintf("Emptied fd %s of PID %d — space reclaimed, process untouched", fd, pid)}
+	}
+}
+
+func doCloseFD(pid int32, fd string) tea.Cmd {
+	return func() tea.Msg {
+		if err := actions.CloseFD(pid, fd); err != nil {
+			return actionMsg{ok: false, text: err.Error()}
+		}
+		return actionMsg{ok: true, text: fmt.Sprintf("Closed fd %s in PID %d", fd, pid)}
+	}
 }

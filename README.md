@@ -32,7 +32,7 @@ whytop opens no socket and needs no token — it's a local program that reads `/
 | Tab | Shows |
 |---|---|
 | Processes | CPU, memory, disk read/write per second, state (D and Z highlighted), systemd unit, command. Sort by any column |
-| Ports | Listening sockets with owning process and unit. Wildcard binds flagged. Established, time-wait, close-wait counts |
+| Ports | Listening sockets with owning process, its memory, and unit. Wildcard binds flagged. Established, time-wait, close-wait counts |
 | Disks | IOPS, throughput, await, queue depth, utilization per device — plus the processes actually driving those numbers right now, a process stuck in D-state (blocked on I/O) always ranked first. Filesystem and inode usage. Hung network mounts flagged |
 | Network | Per-interface traffic, errors, drops. TCP retransmits, resets, new connections |
 | Units | Every systemd service unit — load/active/sub state and the memory its processes are using — with `e` to edit its unit file in `$EDITOR` and, after you save and quit, a prompt to run `systemctl daemon-reload` |
@@ -57,14 +57,17 @@ The footer lists only the keys that work on the current screen.
 | Processes | `s` cycle sort, `S` reverse it, `K` show/hide kernel threads |
 | Ports | `a` all sockets / listening only |
 | Units | `e` edit unit file (asks to `daemon-reload` after) |
-| Process panel | `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `j` reload journal, `f` pause/resume the live journal, `Esc` close |
+| Process panel | `Tab` switch between the process tree and open files, `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `j` reload journal, `f` pause/resume the live journal, `Esc` close |
+| Open files | `t` empty the file (reclaims its space, process keeps running), `c` close the descriptor |
 
 Every destructive action asks for confirmation. The mouse works too: click a tab to switch, click a column header to sort by it (click again to reverse), click a row to open it, scroll to move the selection.
 
 ## Security
 
 - No listening socket, ever — whytop inherits whatever access the shell it's run from already has, nothing more.
-- Refuses to signal PID 1, or itself, or restart scopes and user sessions.
+- Refuses to signal PID 1, or itself, or restart scopes and user sessions — and the same goes for touching their open descriptors.
+- `t` (empty a file) is the fix for "df says full, du finds nothing": a deleted file whose space the kernel won't reclaim while something still holds it open. It returns the space and leaves the descriptor valid, so the process keeps running.
+- `c` (close a descriptor) is the blunt one. The kernel has no syscall for closing someone else's descriptor, so whytop attaches gdb and calls `close()` in the target's own context. The process is never told, and will get `EBADF` the next time it touches that descriptor — it may fail or crash. Prefer `t`.
 - Editing a unit file needs write access to it (root, normally) and never runs `daemon-reload` on its own — it always asks first.
 
 Root is only needed for full visibility (other users' sockets, disk I/O, open files). Prefer capabilities over full root where your kernel supports it:

@@ -76,3 +76,29 @@ func TestCanRestart(t *testing.T) {
 		})
 	}
 }
+
+// A descriptor action reaches into a running process, so the guards matter
+// more than the happy path: PID 1 and whytop's own descriptors are never
+// valid targets, and a descriptor is always a number.
+func TestFDActionsRefuseDangerousTargets(t *testing.T) {
+	self := int32(os.Getpid())
+	cases := []struct {
+		name string
+		pid  int32
+		fd   string
+	}{
+		{"init", 1, "3"},
+		{"kernel", 0, "3"},
+		{"whytop itself", self, "3"},
+		{"not a number", 4242, "abc"},
+		{"negative", 4242, "-1"},
+	}
+	for _, c := range cases {
+		if err := CloseFD(c.pid, c.fd); err == nil {
+			t.Errorf("CloseFD accepted %s (pid=%d fd=%q)", c.name, c.pid, c.fd)
+		}
+		if err := TruncateFD(c.pid, c.fd); err == nil {
+			t.Errorf("TruncateFD accepted %s (pid=%d fd=%q)", c.name, c.pid, c.fd)
+		}
+	}
+}

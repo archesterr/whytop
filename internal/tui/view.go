@@ -398,7 +398,14 @@ func (m model) renderFooter(w int) string {
 	case m.editing:
 		keys = [][2]string{{"enter", "apply"}, {"esc", "clear"}}
 	case m.detail != nil:
-		keys = [][2]string{{"↑↓", "tree"}, {"enter", "open"}, {"x", "stop"}, {"X", "kill"}}
+		// The panel has two lists; the hints name whichever one has the
+		// cursor, so the keys on offer are the ones that will actually fire.
+		if m.detail.focus == focusFiles {
+			keys = [][2]string{{"↑↓", "files"}, {"tab", "tree"}, {"t", "empty file"}, {"c", "close fd"}}
+		} else {
+			keys = [][2]string{{"↑↓", "tree"}, {"tab", "files"}, {"enter", "open"}}
+		}
+		keys = append(keys, [2]string{"x", "stop"}, [2]string{"X", "kill"})
 		if !m.detail.loaded || m.detail.restartBlocked == "" {
 			keys = append(keys, [2]string{"r", "restart"})
 		}
