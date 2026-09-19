@@ -238,7 +238,11 @@ func (m model) tabCounts() map[tab]int {
 			}
 		}
 	}
-	return map[tab]int{tabProcs: len(s.Procs), tabPorts: listen, tabDisks: len(s.Disks), tabNet: len(s.NICs)}
+	units := -1
+	if s.UnitsCollected {
+		units = len(s.Units)
+	}
+	return map[tab]int{tabProcs: len(s.Procs), tabPorts: listen, tabDisks: len(s.Disks), tabNet: len(s.NICs), tabUnits: units}
 }
 
 // hrule draws a thin horizontal rule under the tab bar, separating chrome
@@ -275,8 +279,10 @@ func (m model) renderTab(w, h int) string {
 		return m.renderPorts(w, avail)
 	case tabDisks:
 		return m.renderDisks(w, avail)
-	default:
+	case tabNet:
 		return m.renderNet(w, avail)
+	default:
+		return m.renderUnits(w, avail)
 	}
 }
 
@@ -298,9 +304,12 @@ func (m model) renderFooter(w int) string {
 		if !m.detail.loaded || m.detail.restartBlocked == "" {
 			keys = append(keys, [2]string{"r", "restart"})
 		}
-		keys = append(keys, [2]string{"l", "journal"}, [2]string{"esc", "close"})
+		keys = append(keys, [2]string{"j", "journal"}, [2]string{"esc", "close"})
 	default:
-		keys = [][2]string{{"1-4/←→", "tabs"}, {"↑↓", "select"}, {"enter", "open"}}
+		keys = [][2]string{{"1-5/←→", "tabs"}, {"↑↓", "select"}}
+		if m.tab != tabUnits {
+			keys = append(keys, [2]string{"enter", "open"})
+		}
 		if m.tab == tabProcs || m.tab == tabPorts {
 			keys = append(keys, [2]string{"/", "filter"})
 		}
@@ -309,6 +318,9 @@ func (m model) renderFooter(w int) string {
 		}
 		if m.tab == tabPorts {
 			keys = append(keys, [2]string{"a", "all sockets"})
+		}
+		if m.tab == tabUnits {
+			keys = append(keys, [2]string{"e", "edit unit"})
 		}
 		keys = append(keys, [2]string{"p", "pause"}, [2]string{"q", "quit"})
 	}

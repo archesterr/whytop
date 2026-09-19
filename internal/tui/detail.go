@@ -36,7 +36,7 @@ func (m model) renderDetail(w, h int) string {
 	if p.Unit != "" {
 		title += "  " + stAccent.Render(unitName(p.Unit))
 	}
-	b.WriteString(title + "\n\n")
+	b.WriteString(title + "\n")
 
 	parent := "–"
 	if pp, ok := m.procByPID(p.PPID); ok {
@@ -96,7 +96,7 @@ func (m model) renderDetail(w, h int) string {
 		}
 		b.WriteString(line + "\n")
 	}
-	b.WriteString("\n" + stMuted.Render("Command  ") + truncate(cmdOf(p), w-9) + "\n")
+	b.WriteString(stMuted.Render("Command  ") + truncate(cmdOf(p), w-9) + "\n")
 
 	restartLine := "restart: checking…"
 	if d.loaded {
@@ -105,18 +105,19 @@ func (m model) renderDetail(w, h int) string {
 			restartLine = "restart: " + d.restartBlocked
 		}
 	}
-	b.WriteString(stFaint.Render(restartLine) + "\n\n")
+	b.WriteString(stFaint.Render(restartLine) + "\n")
 
-	bottom := max0(h - 16)
-	sockH := bottom / 4
-	if sockH < 3 {
-		sockH = 3
+	// Five units: tree gets two (it's usually what you came here for), the
+	// other three sections one each.
+	bottom := max0(h - 13)
+	unit := bottom / 5
+	if unit < 3 {
+		unit = 3
 	}
-	treeH := (bottom - sockH) / 2
-	if treeH < 3 {
-		treeH = 3
-	}
-	logH := max0(bottom - sockH - treeH)
+	treeH := 2 * unit
+	sockH := unit
+	filesH := unit
+	logH := max0(bottom - treeH - sockH - filesH)
 	if logH < 3 {
 		logH = 3
 	}
@@ -124,10 +125,19 @@ func (m model) renderDetail(w, h int) string {
 	b.WriteString(stHeader.Render(fmt.Sprintf("PROCESS TREE (%d)", len(nodes))) + "\n")
 	b.WriteString(m.renderTree(nodes, w, treeH) + "\n")
 
-	b.WriteString("\n" + stHeader.Render("SOCKETS") + "\n")
+	b.WriteString(stHeader.Render("SOCKETS") + "\n")
 	b.WriteString(m.renderSockets(nodes, w, sockH) + "\n")
 
-	b.WriteString("\n" + stHeader.Render("JOURNAL") + "\n")
+	// x/X below stop/force-kill this same process — the one holding every
+	// file listed here, so no separate kill control is needed per row.
+	filesHeader := "OPEN FILES"
+	if d.loaded && d.extra.FDs >= 0 {
+		filesHeader = fmt.Sprintf("OPEN FILES (%d)", d.extra.FDs)
+	}
+	b.WriteString(stHeader.Render(filesHeader) + "\n")
+	b.WriteString(m.renderOpenFiles(w, filesH) + "\n")
+
+	b.WriteString(stHeader.Render("JOURNAL") + "\n")
 	b.WriteString(renderJournal(d.journal, w, logH))
 
 	return b.String()
@@ -178,6 +188,47 @@ func (m model) renderSockets(nodes []collect.Proc, w, h int) string {
 		}
 		return joinCols(cell(strconv.Itoa(int(c.LPort)), 6, true, stPlain.Bold(true)), cell(c.Proto, 6, false, stMuted),
 			cell(c.State, 12, false, stStyle), cell(c.Remote, remoteW, false, stMuted))
+	})
+	return header + "\n" + strings.Join(lines, "\n")
+}
+
+// renderOpenFiles lists what this process actually has open right now — the
+// direct answer to "what files is this touching," which neither top, htop
+// nor iotop show at all (lsof/ls -l /proc/<pid>/fd is the usual answer, a
+// separate shell round-trip away). Real files sort first, then pipes,
+// sockets (already detailed in SOCKETS above), and anonymous kernel fds
+// (eventfd/timerfd/etc.) last.
+var fdKindRank = map[string]int{"file": 0, "deleted": 0, "pipe": 1, "socket": 2, "anon": 3}
+
+func (m model) renderOpenFiles(w, h int) string {
+	d := m.detail
+	if !d.loaded {
+		return stMuted.Render("Loading…")
+	}
+	if len(d.extra.OpenFiles) == 0 {
+		if d.extra.FDs < 0 {
+			return stMuted.Render("Open files hidden. Run whytop with sudo.")
+		}
+		return stMuted.Render("No open files.")
+	}
+	files := make([]collect.OpenFile, len(d.extra.OpenFiles))
+	copy(files, d.extra.OpenFiles)
+	sort.SliceStable(files, func(i, j int) bool { return fdKindRank[files[i].Kind] < fdKindRank[files[j].Kind] })
+
+	fdW, kindW := 4, 8
+	targetW := max0(w - fdW - kindW - 2*sepW)
+	if targetW < 10 {
+		targetW = 10
+	}
+	header := joinCols(centerCell("FD", fdW, stHeader), centerCell("KIND", kindW, stHeader), centerCell("TARGET", targetW, stHeader))
+	lines := capRows(files, h-1, func(f collect.OpenFile) string {
+		style := stMuted
+		if f.Kind == "deleted" {
+			style = stWarn
+		} else if f.Kind == "file" {
+			style = stPlain
+		}
+		return joinCols(cell(f.FD, fdW, true, stFaint), cell(f.Kind, kindW, false, stFaint), cell(f.Target, targetW, false, style))
 	})
 	return header + "\n" + strings.Join(lines, "\n")
 }

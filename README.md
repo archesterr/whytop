@@ -35,10 +35,11 @@ whytop opens no socket and needs no token — it's a local program that reads `/
 | Ports | Listening sockets with owning process and unit. Wildcard binds flagged. Established, time-wait, close-wait counts |
 | Disks | IOPS, throughput, await, queue depth, utilization per device — plus the processes actually driving those numbers right now, a process stuck in D-state (blocked on I/O) always ranked first. Filesystem and inode usage. Hung network mounts flagged |
 | Network | Per-interface traffic, errors, drops. TCP retransmits, resets, new connections |
+| Units | Every systemd service unit — load/active/sub state — with `e` to edit its unit file in `$EDITOR` and, after you save and quit, a prompt to run `systemctl daemon-reload` |
 
 Always visible: CPU, memory, I/O wait, load per core, and PSI pressure. A red banner surfaces immediately if the kernel OOM-killed a process — no need to go digging through `dmesg`.
 
-Opening a process shows its state, parent, CPU/memory/disk with children, open files against the limit, OOM score, container (if any), unit status and restart count, the full child tree, its own sockets, and the journal.
+Opening a process shows its state, parent, CPU/memory/disk with children, its open files (path, fd, kind — not just a count against the limit), OOM score, container (if any), unit status and restart count, the full child tree, its own sockets, and the journal. Stop/force-kill from the same screen acts on that process, so there's no separate "kill" control per open file or socket — they're all its own.
 
 ## Keys
 
@@ -46,11 +47,13 @@ The footer lists only the keys that work on the current screen.
 
 | Where | Keys |
 |---|---|
-| Everywhere | `1`–`4` tabs, `p` pause |
-| Processes, Ports | `↑` `↓` select, `Enter` open, `/` filter, `Esc` clear filter |
+| Everywhere | `1`–`5` tabs (also `←` `→`/`Tab`/`h`/`l`), `p` pause |
+| Processes, Ports, Units | `↑` `↓` select |
+| Processes, Ports | `Enter` open, `/` filter, `Esc` clear filter |
 | Processes | `s` cycle sort |
 | Ports | `a` all sockets / listening only |
-| Process panel | `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `l` reload journal, `Esc` close |
+| Units | `e` edit unit file (asks to `daemon-reload` after) |
+| Process panel | `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `j` reload journal, `Esc` close |
 
 Every destructive action asks for confirmation. The mouse works too: click a tab to switch, click a row to open it, scroll to move the selection.
 
@@ -58,6 +61,7 @@ Every destructive action asks for confirmation. The mouse works too: click a tab
 
 - No listening socket, ever — whytop inherits whatever access the shell it's run from already has, nothing more.
 - Refuses to signal PID 1, or itself, or restart scopes and user sessions.
+- Editing a unit file needs write access to it (root, normally) and never runs `daemon-reload` on its own — it always asks first.
 
 Root is only needed for full visibility (other users' sockets, disk I/O, open files). Prefer capabilities over full root where your kernel supports it:
 

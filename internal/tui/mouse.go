@@ -45,6 +45,10 @@ func (m model) wheelMove(delta int) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.tab == tabUnits {
+		m.moveUnitSel(delta)
+		return m, nil
+	}
 	m.moveSel(delta)
 	return m, nil
 }
@@ -68,6 +72,9 @@ func (m model) handleClick(x, y int) (tea.Model, tea.Cmd) {
 	}
 	if (m.tab == tabProcs || m.tab == tabPorts) && y >= listFirstRow {
 		return m.clickRow(y - listFirstRow)
+	}
+	if m.tab == tabUnits && y >= listFirstRow {
+		return m.clickUnitRow(y - listFirstRow)
 	}
 	return m, nil
 }
@@ -107,6 +114,27 @@ func (m *model) clickRow(idx int) (tea.Model, tea.Cmd) {
 	return m.openSelected()
 }
 
+func (m *model) clickUnitRow(idx int) (tea.Model, tea.Cmd) {
+	if m.snap == nil || idx < 0 {
+		return *m, nil
+	}
+	units := m.snap.Units
+	selIdx := -1
+	for j, u := range units {
+		if u.Name == m.unitSel {
+			selIdx = j
+			break
+		}
+	}
+	start, end := windowRows(len(units), selIdx, m.tabRowsBudget())
+	target := start + idx
+	if target < start || target >= end {
+		return *m, nil
+	}
+	m.unitSel = units[target].Name
+	return *m, nil
+}
+
 // tabRegion is a tab's horizontal span in the rendered tab bar, in terminal
 // columns, plus the exact text renderTabs draws for it. Both rendering and
 // click hit-testing are built from this single source so they can't drift
@@ -121,7 +149,7 @@ type tabRegion struct {
 func tabRegions(counts map[tab]int) []tabRegion {
 	var regions []tabRegion
 	x := 0
-	for _, t := range []tab{tabProcs, tabPorts, tabDisks, tabNet} {
+	for _, t := range []tab{tabProcs, tabPorts, tabDisks, tabNet, tabUnits} {
 		base := fmt.Sprintf(" %d %s ", int(t)+1, t.String())
 		countText := ""
 		if n, ok := counts[t]; ok && n >= 0 {
