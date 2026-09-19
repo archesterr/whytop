@@ -54,12 +54,12 @@ The footer lists only the keys that work on the current screen.
 | Everywhere | `1`–`5` tabs (also `←` `→`/`Tab`/`h`/`l`), `p` pause |
 | Processes, Ports, Units | `↑` `↓` select |
 | Processes, Ports | `Enter` open, `/` filter, `Esc` clear filter |
-| Processes | `s` cycle sort, `K` show/hide kernel threads |
+| Processes | `s` cycle sort, `S` reverse it, `K` show/hide kernel threads |
 | Ports | `a` all sockets / listening only |
 | Units | `e` edit unit file (asks to `daemon-reload` after) |
 | Process panel | `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `j` reload journal, `Esc` close |
 
-Every destructive action asks for confirmation. The mouse works too: click a tab to switch, click a row to open it, scroll to move the selection.
+Every destructive action asks for confirmation. The mouse works too: click a tab to switch, click a column header to sort by it (click again to reverse), click a row to open it, scroll to move the selection.
 
 ## Security
 

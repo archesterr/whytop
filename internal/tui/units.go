@@ -112,8 +112,8 @@ func (m model) renderUnits(w, h int) string {
 	if descW < 12 {
 		descW = 12
 	}
-	header := joinCols(centerCell("", gutterW, stHeader), centerCell("UNIT", nameW, stHeader), centerCell("LOAD", loadW, stHeader),
-		centerCell("ACTIVE", activeW, stHeader), centerCell("SUB", subW, stHeader), centerCell("DESCRIPTION", descW, stHeader))
+	header := tableHeader(w, centerCell("", gutterW, stHdrCell), centerCell("UNIT", nameW, stHdrCell), centerCell("LOAD", loadW, stHdrCell),
+		centerCell("ACTIVE", activeW, stHdrCell), centerCell("SUB", subW, stHdrCell), centerCell("DESCRIPTION", descW, stHdrCell))
 
 	selIdx := -1
 	for i, u := range units {

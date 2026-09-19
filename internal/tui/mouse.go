@@ -30,7 +30,9 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if msg.Action != tea.MouseActionPress {
 			return m, nil
 		}
-		return m.handleClick(msg.X, msg.Y)
+		// The UI is centred on a wide terminal, so a click's screen column
+		// is offset from the column the renderer laid out.
+		return m.handleClick(msg.X-m.padLeft(), msg.Y)
 	}
 	return m, nil
 }
@@ -71,11 +73,33 @@ func (m model) handleClick(x, y int) (tea.Model, tea.Cmd) {
 	if y == tabBarRow {
 		return m.clickTab(x)
 	}
+	if y == listHeaderRow && m.tab == tabProcs {
+		return m.clickHeader(x)
+	}
 	if (m.tab == tabProcs || m.tab == tabPorts) && y >= listFirstRow {
 		return m.clickRow(y - listFirstRow)
 	}
 	if m.tab == tabUnits && y >= listFirstRow {
 		return m.clickUnitRow(y - listFirstRow)
+	}
+	return m, nil
+}
+
+// clickHeader sorts by the clicked column, htop-style: a new column sorts the
+// way that column is usually read (biggest-first for numbers, A-to-Z for
+// text), and clicking the column you're already sorted by reverses it.
+func (m model) clickHeader(x int) (tea.Model, tea.Cmd) {
+	key := colAt(procColumns(m.contentW()), x)
+	if key == "" {
+		return m, nil
+	}
+	if key == m.sortKey {
+		m.sortDir = -m.sortDir
+		if m.sortDir == 0 {
+			m.sortDir = -defaultSortDir(key)
+		}
+	} else {
+		m.sortKey, m.sortDir = key, defaultSortDir(key)
 	}
 	return m, nil
 }

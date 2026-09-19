@@ -124,7 +124,9 @@ type rowRef struct {
 	pid int32
 }
 
-var procSortCycle = []string{"cpu", "mem", "io", "pid"}
+// procSortCycle is what the s key steps through — the same columns the
+// header exposes to a click, in the order you'd reach for them.
+var procSortCycle = []string{"cpu", "mem", "read", "write", "pid", "user", "state", "command"}
 
 func initialModel(opt Options) model {
 	return model{

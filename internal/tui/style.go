@@ -1,11 +1,16 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 var (
 	colBg     = lipgloss.Color("#1a1f27")
 	colPanel  = lipgloss.Color("#212733")
 	colLine   = lipgloss.Color("#313a4a")
+	colHdrBg  = lipgloss.Color("#2a3242")
 	colSelBg  = lipgloss.Color("#39507a")
 	colText   = lipgloss.Color("#d9dee7")
 	colMuted  = lipgloss.Color("#8b94a5")
@@ -21,16 +26,22 @@ var (
 )
 
 var (
-	stLogo      = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
-	stHost      = lipgloss.NewStyle().Bold(true).Foreground(colText)
-	stMuted     = lipgloss.NewStyle().Foreground(colMuted)
-	stFaint     = lipgloss.NewStyle().Foreground(colFaint)
-	stOK        = lipgloss.NewStyle().Foreground(colOK)
-	stWarn      = lipgloss.NewStyle().Foreground(colWarn)
-	stCrit      = lipgloss.NewStyle().Foreground(colCrit)
-	stAccent    = lipgloss.NewStyle().Foreground(colAccent)
-	stBold      = lipgloss.NewStyle().Bold(true).Foreground(colText)
-	stHeader    = lipgloss.NewStyle().Foreground(colMuted).Bold(true)
+	stLogo     = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
+	stHost     = lipgloss.NewStyle().Bold(true).Foreground(colText)
+	stMuted    = lipgloss.NewStyle().Foreground(colMuted)
+	stFaint    = lipgloss.NewStyle().Foreground(colFaint)
+	stOK       = lipgloss.NewStyle().Foreground(colOK)
+	stWarn     = lipgloss.NewStyle().Foreground(colWarn)
+	stCrit     = lipgloss.NewStyle().Foreground(colCrit)
+	stAccent   = lipgloss.NewStyle().Foreground(colAccent)
+	stBold     = lipgloss.NewStyle().Bold(true).Foreground(colText)
+	stHeader   = lipgloss.NewStyle().Foreground(colMuted).Bold(true)
+	stHeaderOn = lipgloss.NewStyle().Foreground(colAccent).Bold(true) // the sorted column
+	// Column headers sit on a solid bar (htop's idea) so a table reads as a
+	// table at a glance instead of as loose rows of text.
+	stHdrBar    = lipgloss.NewStyle().Foreground(colFaint).Background(colHdrBg)
+	stHdrCell   = lipgloss.NewStyle().Foreground(colMuted).Bold(true).Background(colHdrBg)
+	stHdrCellOn = lipgloss.NewStyle().Foreground(colAccent).Bold(true).Background(colHdrBg)
 	stTabOn     = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colAccent)
 	stTabOnCnt  = lipgloss.NewStyle().Foreground(colBg).Background(colAccent)
 	stTabOff    = lipgloss.NewStyle().Foreground(colMuted)
@@ -53,8 +64,31 @@ const sepW = 1
 
 var colSep = stFaint.Render("│")
 
+func joinColsWith(sep string, cells ...string) string {
+	if len(cells) == 0 {
+		return ""
+	}
+	out := cells[0]
+	for _, c := range cells[1:] {
+		out += sep + c
+	}
+	return out
+}
+
 func joinCols(cells ...string) string {
 	return joinColsSel(false, cells...)
+}
+
+// tableHeader draws a column header as one solid bar across the table, the
+// way htop does. It separates the header from the data without spending a
+// whole row on a rule line — on a 24-row SSH terminal every row a table
+// gives up is a row of actual data you can't see.
+func tableHeader(w int, cells ...string) string {
+	row := joinColsWith(stHdrBar.Render("│"), cells...)
+	if n := max0(w - visLen(row)); n > 0 {
+		row += stHdrBar.Render(strings.Repeat(" ", n))
+	}
+	return row
 }
 
 // joinColsSel joins cells with colSep, carrying a selected row's background
@@ -65,11 +99,7 @@ func joinColsSel(sel bool, cells ...string) string {
 	if sel {
 		sep = withBG(stFaint, true).Render("│")
 	}
-	out := cells[0]
-	for _, c := range cells[1:] {
-		out += sep + c
-	}
-	return out
+	return joinColsWith(sep, cells...)
 }
 
 // lvl returns a style for a value against warn/crit thresholds.
