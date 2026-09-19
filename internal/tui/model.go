@@ -98,8 +98,11 @@ type model struct {
 	filter   [2]string // indexed by tabProcs/tabPorts
 	editing  bool
 	allConns bool
-	sel      [2]string // selected row key, indexed by tabProcs/tabPorts
-	unitSel  string    // selected unit name, for the Units tab
+	// showKernel reveals kernel threads in the process list. Off by default:
+	// see Proc.Kernel.
+	showKernel bool
+	sel        [2]string // selected row key, indexed by tabProcs/tabPorts
+	unitSel    string    // selected unit name, for the Units tab
 
 	detail  *detailState
 	confirm *confirmState

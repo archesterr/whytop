@@ -6,14 +6,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Row 3 (0-indexed) is always the tab bar: row 0 header, rows 1-2 the two
-// physical lines of the vitals cards, row 3 tabs, row 4 the rule line under
-// them — see View()'s layout, which renderTab's `avail := h-7` budget also
-// assumes. Rows 5+ are the current tab's own header + data rows.
+// Row 4 (0-indexed) is always the tab bar: row 0 header, rows 1-2 the two
+// physical lines of the vitals cards, row 3 the status line, row 4 tabs,
+// row 5 the rule line under them — see View()'s layout, which renderTab's
+// `avail := h-8` budget also assumes. Rows 6+ are the current tab's own
+// header + data rows.
 const (
-	tabBarRow     = 3
-	listHeaderRow = 5
-	listFirstRow  = 6
+	tabBarRow     = 4
+	listHeaderRow = 6
+	listFirstRow  = 7
 )
 
 func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {

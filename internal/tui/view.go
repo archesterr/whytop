@@ -29,6 +29,8 @@ func (m model) View() string {
 	b.WriteString("\n")
 	b.WriteString(m.renderVitals(w))
 	b.WriteString("\n")
+	b.WriteString(m.renderStatus(w))
+	b.WriteString("\n")
 
 	if m.detail != nil {
 		b.WriteString(m.renderDetail(w, h))
@@ -242,7 +244,10 @@ func (m model) tabCounts() map[tab]int {
 	if s.UnitsCollected {
 		units = len(s.Units)
 	}
-	return map[tab]int{tabProcs: len(s.Procs), tabPorts: listen, tabDisks: len(s.Disks), tabNet: len(s.NICs), tabUnits: units}
+	// Processes counts what the list actually shows, not every PID on the
+	// system — a count that disagrees with the rows under it is a bug report
+	// waiting to happen.
+	return map[tab]int{tabProcs: len(m.procRows()), tabPorts: listen, tabDisks: len(s.Disks), tabNet: len(s.NICs), tabUnits: units}
 }
 
 // hrule draws a thin horizontal rule under the tab bar, separating chrome
@@ -260,7 +265,7 @@ func hrule(w int) string {
 // exact same number to translate a screen row back into a list index,
 // since both are scrolled to follow the selection (windowRows).
 func (m model) tabRowsBudget() int {
-	avail := m.height - 7
+	avail := m.height - 8
 	if avail < 3 {
 		avail = 3
 	}
@@ -268,7 +273,7 @@ func (m model) tabRowsBudget() int {
 }
 
 func (m model) renderTab(w, h int) string {
-	avail := h - 7 // header + vitals + tabs + rule + footer
+	avail := h - 8 // header + vitals(2) + status + tabs + rule + footer
 	if avail < 3 {
 		avail = 3
 	}

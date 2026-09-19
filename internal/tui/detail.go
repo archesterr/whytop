@@ -109,7 +109,7 @@ func (m model) renderDetail(w, h int) string {
 
 	// Five units: tree gets two (it's usually what you came here for), the
 	// other three sections one each.
-	bottom := max0(h - 13)
+	bottom := max0(h - 14)
 	unit := bottom / 5
 	if unit < 3 {
 		unit = 3
