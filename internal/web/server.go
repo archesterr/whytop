@@ -32,28 +32,35 @@ import (
 //go:embed static/index.html
 var indexHTML []byte
 
-// csp is computed from the embedded page itself (CIS/OWASP: avoid
-// 'unsafe-inline'; hash the exact inline script/style instead of trusting
-// them by location). It is derived at init, not hand-maintained, so it can
+// csp is computed from the embedded page itself. script-src is locked to the
+// sha256 of the page's own inline <script> — this is the defense that
+// matters: it blocks any script CSP wouldn't otherwise catch (injected
+// <script>, javascript: URLs, event-handler attributes) without trusting
+// 'unsafe-inline'. It is derived at init, not hand-maintained, so it can
 // never drift from the actual page content.
+//
+// style-src stays 'unsafe-inline': the page legitimately sets many
+// data-driven inline style="..." attributes (meter bar widths, process-tree
+// indent, vital-card accent colors), and CSP has no hash/nonce mechanism for
+// arbitrary per-element attribute values ('unsafe-hashes' covers script
+// event-handler attributes only, not style). This app has no path where
+// untrusted external data reaches a style attribute — every dynamic value
+// is a clamped number computed server-side — so this is the standard
+// OWASP-recommended tradeoff: restrict script-src tightly, accept
+// 'unsafe-inline' for style-src.
 var csp = buildCSP(indexHTML)
 
-var inlineBlockRe = regexp.MustCompile(`(?s)<(script|style)>(.*?)</(?:script|style)>`)
+var scriptBlockRe = regexp.MustCompile(`(?s)<script>(.*?)</script>`)
 
 func buildCSP(html []byte) string {
-	var scriptSrc, styleSrc []string
-	for _, m := range inlineBlockRe.FindAllSubmatch(html, -1) {
-		sum := sha256.Sum256(m[2])
-		hash := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
-		if string(m[1]) == "script" {
-			scriptSrc = append(scriptSrc, hash)
-		} else {
-			styleSrc = append(styleSrc, hash)
-		}
+	var scriptSrc []string
+	for _, m := range scriptBlockRe.FindAllSubmatch(html, 1) {
+		sum := sha256.Sum256(m[1])
+		scriptSrc = append(scriptSrc, "'sha256-"+base64.StdEncoding.EncodeToString(sum[:])+"'")
 	}
 	return "default-src 'none'; " +
 		"script-src " + strings.Join(scriptSrc, " ") + "; " +
-		"style-src " + strings.Join(styleSrc, " ") + "; " +
+		"style-src 'unsafe-inline'; " +
 		"connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 }
 

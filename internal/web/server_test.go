@@ -2,15 +2,15 @@ package web
 
 import "testing"
 
-func TestBuildCSPHasNoUnsafeInline(t *testing.T) {
+func TestBuildCSPLocksScriptSrcToHash(t *testing.T) {
 	got := buildCSP(indexHTML)
 	if got == "" {
 		t.Fatal("buildCSP returned empty policy")
 	}
-	if want := "unsafe-inline"; contains(got, want) {
-		t.Errorf("CSP still contains %q: %s", want, got)
+	if want := "script-src 'unsafe-inline'"; contains(got, want) {
+		t.Errorf("script-src must not allow unsafe-inline: %s", got)
 	}
-	for _, want := range []string{"script-src 'sha256-", "style-src 'sha256-", "default-src 'none'"} {
+	for _, want := range []string{"script-src 'sha256-", "default-src 'none'"} {
 		if !contains(got, want) {
 			t.Errorf("CSP missing %q: %s", want, got)
 		}
