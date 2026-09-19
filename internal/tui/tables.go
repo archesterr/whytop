@@ -178,8 +178,8 @@ func (m model) renderPorts(w, h int) string {
 	if remoteW < 10 {
 		remoteW = 10
 	}
-	header := tableHeader(w, centerCell("", gutterW, stHdrCell), centerCell("PORT", 6, stHdrCell), centerCell("PROTO", 6, stHdrCell), centerCell("ADDRESS", 15, stHdrCell),
-		centerCell("STATE", 11, stHdrCell), centerCell("PROCESS", 16, stHdrCell), centerCell("PID", 6, stHdrCell), centerCell("REMOTE", remoteW, stHdrCell))
+	header := tableHeader(w, hdrCell("", gutterW, stHdrCell), hdrCell("PORT", 6, stHdrCell), hdrCell("PROTO", 6, stHdrCell), hdrCell("ADDRESS", 15, stHdrCell),
+		hdrCell("STATE", 11, stHdrCell), hdrCell("PROCESS", 16, stHdrCell), hdrCell("PID", 6, stHdrCell), hdrCell("REMOTE", remoteW, stHdrCell))
 
 	var lines []string
 	lines = append(lines, header)
@@ -244,6 +244,38 @@ func pad(rendered string, width int, selected bool) string {
 		fill = withBG(stPlain, true).Render(fill)
 	}
 	return rendered + fill
+}
+
+// truncateANSI cuts an already-styled string to w visible columns with the
+// escape sequences left intact. truncate() counts runes, so on styled text it
+// slices through the middle of an escape sequence and corrupts the colour of
+// everything after it.
+func truncateANSI(s string, w int) string {
+	if visLen(s) <= w {
+		return s
+	}
+	if w <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	vis, inEsc := 0, false
+	for _, r := range s {
+		switch {
+		case r == '\x1b':
+			inEsc = true
+			b.WriteRune(r)
+		case inEsc:
+			b.WriteRune(r)
+			if r == 'm' {
+				inEsc = false
+			}
+		case vis < w-1:
+			b.WriteRune(r)
+			vis++
+		}
+	}
+	b.WriteString("…\x1b[0m")
+	return b.String()
 }
 
 func visLen(s string) int {
@@ -322,9 +354,9 @@ func (m model) renderDisks(w, h int) string {
 	if len(m.snap.Disks) == 0 {
 		b.WriteString(stMuted.Render("No block devices.") + "\n")
 	} else {
-		b.WriteString(tableHeader(w, centerCell("DEVICE", 10, stHdrCell), centerCell("R/S", 7, stHdrCell), centerCell("W/S", 7, stHdrCell),
-			centerCell("READ", 9, stHdrCell), centerCell("WRITE", 9, stHdrCell), centerCell("AWAIT", 8, stHdrCell),
-			centerCell("QUEUE", 6, stHdrCell), centerCell("UTIL%", 6, stHdrCell)) + "\n")
+		b.WriteString(tableHeader(w, hdrCell("DEVICE", 10, stHdrCell), hdrCell("R/S", 7, stHdrCell), hdrCell("W/S", 7, stHdrCell),
+			hdrCell("READ", 9, stHdrCell), hdrCell("WRITE", 9, stHdrCell), hdrCell("AWAIT", 8, stHdrCell),
+			hdrCell("QUEUE", 6, stHdrCell), hdrCell("UTIL%", 6, stHdrCell)) + "\n")
 		lines := capRows(m.snap.Disks, half, func(d collect.Disk) string {
 			return joinCols(cell(d.Name, 10, false, stPlain.Bold(true)), cell(f1(d.RIOPS), 7, true, stPlain), cell(f1(d.WIOPS), 7, true, stPlain),
 				cell(rateFmt(d.RBps), 9, true, stPlain), cell(rateFmt(d.WBps), 9, true, stPlain),
@@ -345,8 +377,8 @@ func (m model) renderDisks(w, h int) string {
 		if mountW < 10 {
 			mountW = 10
 		}
-		b.WriteString(tableHeader(w, centerCell("MOUNT", mountW, stHdrCell), centerCell("TYPE", 8, stHdrCell), centerCell("SIZE", 9, stHdrCell),
-			centerCell("FREE", 9, stHdrCell), centerCell("USED%", 7, stHdrCell), centerCell("INODE%", 7, stHdrCell)) + "\n")
+		b.WriteString(tableHeader(w, hdrCell("MOUNT", mountW, stHdrCell), hdrCell("TYPE", 8, stHdrCell), hdrCell("SIZE", 9, stHdrCell),
+			hdrCell("FREE", 9, stHdrCell), hdrCell("USED%", 7, stHdrCell), hdrCell("INODE%", 7, stHdrCell)) + "\n")
 		lines := capRows(m.snap.FS, half, func(f collect.FS) string {
 			if f.Stale {
 				return cell(f.Mount, mountW, false, stPlain.Bold(true)) + colSep + stCrit.Render(truncate("not responding — statfs is hanging (dead network mount?)", w-mountW-sepW))
@@ -387,8 +419,8 @@ func (m model) renderDiskProcs(w, h int) string {
 	if cmdW < 12 {
 		cmdW = 12
 	}
-	header := tableHeader(w, centerCell("PID", 6, stHdrCell), centerCell("USER", 11, stHdrCell), centerCell("ST", 3, stHdrCell),
-		centerCell("READ", 9, stHdrCell), centerCell("WRITE", 9, stHdrCell), centerCell("COMMAND", cmdW, stHdrCell))
+	header := tableHeader(w, hdrCell("PID", 6, stHdrCell), hdrCell("USER", 11, stHdrCell), hdrCell("ST", 3, stHdrCell),
+		hdrCell("READ", 9, stHdrCell), hdrCell("WRITE", 9, stHdrCell), hdrCell("COMMAND", cmdW, stHdrCell))
 	lines := capRows(procs, h-1, func(p collect.Proc) string {
 		return joinCols(cell(strconv.Itoa(int(p.PID)), 6, true, stPlain), cell(p.User, 11, false, stMuted),
 			cell(p.State, 3, false, stateStyle(p.State)), ioCell(p.IOHidden, p.ReadBps, 9, false), ioCell(p.IOHidden, p.WriteBps, 9, false),
@@ -425,8 +457,8 @@ func (m model) renderNet(w, h int) string {
 		if nameW < 8 {
 			nameW = 8
 		}
-		b.WriteString(tableHeader(w, centerCell("NAME", nameW, stHdrCell), centerCell("RX", 9, stHdrCell), centerCell("TX", 9, stHdrCell),
-			centerCell("PPS IN", 8, stHdrCell), centerCell("PPS OUT", 8, stHdrCell), centerCell("ERR/S", 7, stHdrCell), centerCell("DROP/S", 7, stHdrCell)) + "\n")
+		b.WriteString(tableHeader(w, hdrCell("NAME", nameW, stHdrCell), hdrCell("RX", 9, stHdrCell), hdrCell("TX", 9, stHdrCell),
+			hdrCell("PPS IN", 8, stHdrCell), hdrCell("PPS OUT", 8, stHdrCell), hdrCell("ERR/S", 7, stHdrCell), hdrCell("DROP/S", 7, stHdrCell)) + "\n")
 		// A container host can have dozens to hundreds of veth interfaces —
 		// cap the list against the tab's height budget like every other
 		// table does, instead of printing an unbounded interface list.

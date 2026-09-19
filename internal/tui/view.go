@@ -402,7 +402,11 @@ func (m model) renderFooter(w int) string {
 		if !m.detail.loaded || m.detail.restartBlocked == "" {
 			keys = append(keys, [2]string{"r", "restart"})
 		}
-		keys = append(keys, [2]string{"j", "journal"}, [2]string{"esc", "close"})
+		follow := "f live-log: on"
+		if !m.detail.follow {
+			follow = "f live-log: off"
+		}
+		keys = append(keys, [2]string{"j", "journal"}, [2]string{follow[:1], follow[2:]}, [2]string{"esc", "close"})
 	default:
 		// Only advertise keys that actually do something on this tab. Disks
 		// and Network have no selectable rows, and a footer offering "enter
