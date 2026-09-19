@@ -67,7 +67,11 @@ type actionMsg struct {
 	text    string
 	openPID int32 // >0: open this PID's detail after a restart resolves a new main PID
 }
-type clearToastMsg struct{}
+
+// clearToastMsg carries the generation it was scheduled for, so an older
+// toast's timer can't blank out a newer toast that replaced it before the
+// old timer fired.
+type clearToastMsg struct{ gen int }
 type journalMsg struct {
 	pid  int32
 	text string
@@ -93,6 +97,7 @@ type model struct {
 
 	toast      string
 	toastStyle func(...string) string
+	toastGen   int
 
 	deepPID  int
 	deepPort int
@@ -177,24 +182,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case actionMsg:
-		m.toast = msg.text
-		if msg.ok {
-			m.toastStyle = stToastOK.Render
-		} else {
-			m.toastStyle = stToastErr.Render
-		}
-		var cmds []tea.Cmd
-		cmds = append(cmds, tea.Tick(toastTTL, func(time.Time) tea.Msg { return clearToastMsg{} }))
+		_, toastCmd := m.showToast(msg.text, msg.ok)
+		cmds := []tea.Cmd{toastCmd}
 		if msg.ok {
 			cmds = append(cmds, m.collectCmd(0))
 		}
 		if msg.openPID > 0 {
 			m.detail = &detailState{pid: msg.openPID}
+			cmds = append(cmds, m.loadExtraCmd(msg.openPID), m.loadJournalCmd(msg.openPID))
 		}
 		return m, tea.Batch(cmds...)
 
 	case clearToastMsg:
-		m.toast = ""
+		if msg.gen == m.toastGen {
+			m.toast = ""
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -210,9 +212,8 @@ func (m *model) resolveDeepLink() tea.Cmd {
 		pid := int32(m.deepPID)
 		m.deepPID = 0
 		if _, ok := m.procByPID(pid); !ok {
-			m.toast = fmt.Sprintf("No process with PID %d", pid)
-			m.toastStyle = stToastErr.Render
-			return tea.Tick(toastTTL, func(time.Time) tea.Msg { return clearToastMsg{} })
+			_, cmd := m.showToast(fmt.Sprintf("No process with PID %d", pid), false)
+			return cmd
 		}
 		m.detail = &detailState{pid: pid}
 		return tea.Batch(m.loadExtraCmd(pid), m.loadJournalCmd(pid))
@@ -232,9 +233,8 @@ func (m *model) resolveDeepLink() tea.Cmd {
 		}
 		m.tab = tabPorts
 		m.filter[tabPorts] = strconv.Itoa(port)
-		m.toast = fmt.Sprintf("Nothing visible is listening on port %d", port)
-		m.toastStyle = stToastErr.Render
-		return tea.Tick(toastTTL, func(time.Time) tea.Msg { return clearToastMsg{} })
+		_, cmd := m.showToast(fmt.Sprintf("Nothing visible is listening on port %d", port), false)
+		return cmd
 	}
 	return nil
 }

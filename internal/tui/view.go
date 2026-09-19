@@ -43,21 +43,40 @@ func (m model) View() string {
 
 func (m model) renderHeader(w int) string {
 	s := m.snap
-	left := stLogo.Render("whytop") + "  " + stHost.Render(s.Host) + "  " +
-		stMuted.Render(fmt.Sprintf("up %s · %d cores · %d processes", dur(s.Uptime), s.CPU.Cores, len(s.Procs)))
-	if !s.Root {
-		left += "  " + stWarn.Render("limited view: run with sudo")
-	}
 	status := stOK.Render("● live")
 	if m.paused {
 		status = stWarn.Render("● paused")
 	}
-	right := status
-	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
+
+	warnNote := ""
+	if !s.Root {
+		warnNote = "  limited view: run with sudo"
+	}
+	// A long hostname or a narrow terminal (an 80-column SSH default is
+	// common) can't be allowed to overflow: unlike the tab bar, this row's
+	// budget assumption (renderTab's avail := h-6) breaks if the header
+	// wraps onto a second physical line. Every variable-length piece's
+	// budget is derived from w itself, not a fixed constant — a fixed cap
+	// still overflows once w drops below it.
+	reserved := len("whytop  ") + 2 + len(warnNote) + lipgloss.Width(status) + 1
+	avail := max0(w - reserved)
+	hostBudget := avail
+	if hostBudget > 40 {
+		hostBudget = 40 // don't let a long hostname alone hog a wide terminal
+	}
+	host := truncate(s.Host, hostBudget)
+	metaBudget := max0(avail - lipgloss.Width(host) - 2)
+	meta := truncate(fmt.Sprintf("up %s · %d cores · %d processes", dur(s.Uptime), s.CPU.Cores, len(s.Procs)), metaBudget)
+
+	left := stLogo.Render("whytop") + "  " + stHost.Render(host) + "  " + stMuted.Render(meta)
+	if warnNote != "" {
+		left += stWarn.Render(warnNote)
+	}
+	gap := w - lipgloss.Width(left) - lipgloss.Width(status)
 	if gap < 1 {
 		gap = 1
 	}
-	return left + strings.Repeat(" ", gap) + right
+	return left + strings.Repeat(" ", gap) + status
 }
 
 func (m model) renderVitals(w int) string {
@@ -98,9 +117,13 @@ func (m model) renderVitals(w int) string {
 		{"LOAD", lvl(s.Load1/float64(cores), 0.7, 1), fmt.Sprintf("%.2f", s.Load1), fmt.Sprintf("%.2f per core", s.Load1/float64(cores))},
 		{"PSI", psiStyle, psiVal, psiSub},
 	}
+	// No hard minimum here beyond what keeps labels legible: an 80-column
+	// terminal (the standard SSH default) only leaves room for colW=15, and
+	// a floor above that would silently overflow the row on exactly the
+	// most common terminal width there is.
 	colW := (w - 4) / 5
-	if colW < 16 {
-		colW = 16
+	if colW < 10 {
+		colW = 10
 	}
 
 	// Build exactly two physical lines per row (label, value+sub) with our
@@ -213,7 +236,11 @@ func (m model) renderFooter(w int) string {
 	case m.editing:
 		keys = [][2]string{{"enter", "apply"}, {"esc", "clear"}}
 	case m.detail != nil:
-		keys = [][2]string{{"↑↓", "tree"}, {"enter", "open"}, {"x", "stop"}, {"X", "kill"}, {"r", "restart"}, {"l", "journal"}, {"esc", "close"}}
+		keys = [][2]string{{"↑↓", "tree"}, {"enter", "open"}, {"x", "stop"}, {"X", "kill"}}
+		if !m.detail.loaded || m.detail.restartBlocked == "" {
+			keys = append(keys, [2]string{"r", "restart"})
+		}
+		keys = append(keys, [2]string{"l", "journal"}, [2]string{"esc", "close"})
 	default:
 		keys = [][2]string{{"1-4", "tabs"}, {"↑↓", "select"}, {"enter", "open"}}
 		if m.tab == tabProcs || m.tab == tabPorts {
