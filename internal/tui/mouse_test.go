@@ -109,6 +109,18 @@ func TestOOMPollShowsToastAndReschedules(t *testing.T) {
 	}
 }
 
+func TestProcsTableDropsUnitColumnWhenNarrow(t *testing.T) {
+	m := model{snap: testSnap(), sortKey: "pid"}
+	narrow := m.renderProcs(80, 20)
+	if strings.Contains(strings.Split(narrow, "\n")[0], "UNIT") {
+		t.Error("at 80 columns the Unit header should be dropped in favor of a readable Command column, matching the original web UI's own responsive behavior")
+	}
+	wide := m.renderProcs(160, 20)
+	if !strings.Contains(strings.Split(wide, "\n")[0], "UNIT") {
+		t.Error("at 160 columns there's room for the Unit column and it should be shown")
+	}
+}
+
 func TestOOMPollWithNoKillsStaysSilent(t *testing.T) {
 	m := model{}
 	got, _ := m.Update(oomPollMsg{kills: nil})

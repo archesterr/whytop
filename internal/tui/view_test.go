@@ -7,6 +7,44 @@ import (
 	"github.com/archesterr/whytop/internal/collect"
 )
 
+// Regression coverage for the column-separator addition: every table must
+// still fit an 80-column terminal, the same bug class fixed earlier for the
+// vitals row and header — a width budget that "mostly" accounts for the
+// separators it adds is worse than one that doesn't add them at all.
+func TestAllTablesFit80ColumnsWithSeparators(t *testing.T) {
+	snap := &collect.Snapshot{
+		Host: "myserver", CPU: collect.CPU{Cores: 4},
+		Procs:          []collect.Proc{{PID: 1, Name: "init", User: "root", Unit: "init.scope", Cmdline: "/sbin/init"}},
+		Conns:          []collect.Conn{{Proto: "tcp", LocalIP: "0.0.0.0", LPort: 22, State: "LISTEN", PID: 1}},
+		ConnsCollected: true,
+		Disks:          []collect.Disk{{Name: "sda"}},
+		FS:             []collect.FS{{Mount: "/", Device: "/dev/sda1", Type: "ext4"}},
+		NICs:           []collect.NIC{{Name: "eth0"}},
+		TCP:            collect.TCP{Available: true},
+	}
+	m := model{snap: snap, sortKey: "cpu", width: 80, height: 30}
+	byPID := map[int32]int{}
+	for i, p := range snap.Procs {
+		byPID[p.PID] = i
+	}
+	snap.ByPID = byPID
+
+	checks := map[string]string{
+		"procs":  m.renderProcs(80, 20),
+		"ports":  m.renderPorts(80, 20),
+		"disks":  m.renderDisks(80, 20),
+		"net":    m.renderNet(80, 20),
+		"footer": m.renderFooter(80),
+	}
+	for name, out := range checks {
+		for _, line := range strings.Split(out, "\n") {
+			if got := visLen(line); got > 80 {
+				t.Errorf("%s: line overflows 80-col terminal: width=%d line=%q", name, got, line)
+			}
+		}
+	}
+}
+
 // A standard 80x24 SSH terminal must never be overflowed by a fixed-layout
 // row (one that isn't allowed to wrap without breaking the rest of the
 // screen's line budget) — regression coverage for a real bug where the

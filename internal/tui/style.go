@@ -41,6 +41,35 @@ var (
 	stBox       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colLine).Padding(0, 1)
 )
 
+// colSep visibly separates table columns — a first-time user shouldn't have
+// to guess where one column ends and the next begins from spacing alone.
+// It's the same single-character width as the plain-space gap it replaces
+// (sepW=1): every table's width budget was already tight against an
+// 80-column terminal, the single most common size there is, so a wider
+// separator isn't affordable without dropping a column somewhere.
+const sepW = 1
+
+var colSep = stFaint.Render("│")
+
+func joinCols(cells ...string) string {
+	return joinColsSel(false, cells...)
+}
+
+// joinColsSel joins cells with colSep, carrying a selected row's background
+// onto the separators too — otherwise the highlight would show visible gaps
+// between columns instead of one solid selected row.
+func joinColsSel(sel bool, cells ...string) string {
+	sep := colSep
+	if sel {
+		sep = withBG(stFaint, true).Render("│")
+	}
+	out := cells[0]
+	for _, c := range cells[1:] {
+		out += sep + c
+	}
+	return out
+}
+
 // lvl returns a style for a value against warn/crit thresholds.
 func lvl(v, warn, crit float64) lipgloss.Style {
 	switch {
