@@ -77,6 +77,18 @@ type Proc struct {
 	Started           time.Time
 }
 
+// Kernel reports whether this is a kernel thread ([kworker/…], [ksoftirqd/…]
+// and friends) rather than a real userspace process. Kernel threads have no
+// command line at all, which is how ps/htop tell them apart too. A zombie
+// also has an empty command line but is very much worth seeing, so it never
+// counts as one.
+//
+// On a quiet 4-core box these are ~90% of every PID on the system, so a
+// process list that doesn't separate them out is mostly noise.
+func (p Proc) Kernel() bool {
+	return p.Cmdline == "" && p.State != "Z"
+}
+
 type Conn struct {
 	Proto   string // tcp tcp6 udp udp6
 	LocalIP string

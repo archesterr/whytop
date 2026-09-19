@@ -102,6 +102,14 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.tab == tabPorts {
 			m.allConns = !m.allConns
 		}
+	case "K":
+		if m.tab == tabProcs {
+			m.showKernel = !m.showKernel
+			if m.showKernel {
+				return m.showToast("Showing kernel threads ([kworker/…] and friends). K hides them again.", true)
+			}
+			return m.showToast("Kernel threads hidden. K shows them again.", true)
+		}
 	case "up", "k":
 		if m.tab == tabUnits {
 			m.moveUnitSel(-1)

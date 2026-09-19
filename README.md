@@ -37,7 +37,11 @@ whytop opens no socket and needs no token — it's a local program that reads `/
 | Network | Per-interface traffic, errors, drops. TCP retransmits, resets, new connections |
 | Units | Every systemd service unit — load/active/sub state — with `e` to edit its unit file in `$EDITOR` and, after you save and quit, a prompt to run `systemctl daemon-reload` |
 
-Always visible: CPU, memory, I/O wait, load per core, and PSI pressure. A red banner surfaces immediately if the kernel OOM-killed a process — no need to go digging through `dmesg`.
+Always visible: CPU, memory, I/O wait, load per core, and PSI pressure — and under them, a one-line verdict in plain words. Not `PSI io 22%`, but `⚠ 3 processes stuck waiting on disk · sda 98% busy · /var almost full (97%)`, or just `✓ Nothing obviously wrong right now`. You shouldn't need to already know that 0.7 load across 4 cores is fine but 20% I/O pressure is an emergency.
+
+A red banner surfaces immediately if the kernel OOM-killed a process — no need to go digging through `dmesg`.
+
+The process list hides kernel threads by default (`K` shows them). On an idle 4-core box those are ~90% of every PID on the system and never the thing you're troubleshooting.
 
 Opening a process shows its state, parent, CPU/memory/disk with children, its open files (path, fd, kind — not just a count against the limit), OOM score, container (if any), unit status and restart count, the full child tree, its own sockets, and the journal. Stop/force-kill from the same screen acts on that process, so there's no separate "kill" control per open file or socket — they're all its own.
 
@@ -50,7 +54,7 @@ The footer lists only the keys that work on the current screen.
 | Everywhere | `1`–`5` tabs (also `←` `→`/`Tab`/`h`/`l`), `p` pause |
 | Processes, Ports, Units | `↑` `↓` select |
 | Processes, Ports | `Enter` open, `/` filter, `Esc` clear filter |
-| Processes | `s` cycle sort |
+| Processes | `s` cycle sort, `K` show/hide kernel threads |
 | Ports | `a` all sockets / listening only |
 | Units | `e` edit unit file (asks to `daemon-reload` after) |
 | Process panel | `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `j` reload journal, `Esc` close |

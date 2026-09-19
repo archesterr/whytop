@@ -7,9 +7,11 @@ import (
 )
 
 func testSnap() *collect.Snapshot {
+	// Every fixture carries a Cmdline: a process without one is a kernel
+	// thread (Proc.Kernel), which the process list hides by default.
 	procs := []collect.Proc{
-		{PID: 1, Name: "init", User: "root", CPU: 0, RSS: 100},
-		{PID: 42, Name: "nginx", User: "www", CPU: 12.5, RSS: 5000, Unit: "nginx.service"},
+		{PID: 1, Name: "init", User: "root", CPU: 0, RSS: 100, Cmdline: "/sbin/init"},
+		{PID: 42, Name: "nginx", User: "www", CPU: 12.5, RSS: 5000, Unit: "nginx.service", Cmdline: "nginx: master process"},
 		{PID: 43, Name: "worker", User: "www", CPU: 55.0, RSS: 2000, Cmdline: "nginx: worker"},
 	}
 	byPID := map[int32]int{}

@@ -21,8 +21,16 @@ func (m model) procRows() []collect.Proc {
 	if m.snap == nil {
 		return nil
 	}
-	list := make([]collect.Proc, len(m.snap.Procs))
-	copy(list, m.snap.Procs)
+	list := make([]collect.Proc, 0, len(m.snap.Procs))
+	for _, p := range m.snap.Procs {
+		// Kernel threads are ~90% of the PIDs on an idle box and never the
+		// thing being troubleshot, so they stay out of the way until asked
+		// for. Without this the first screen is a wall of [kworker/…] at 0%.
+		if !m.showKernel && p.Kernel() {
+			continue
+		}
+		list = append(list, p)
+	}
 
 	f := strings.ToLower(strings.TrimSpace(m.filter[tabProcs]))
 	if f != "" {
