@@ -84,10 +84,26 @@ func (m model) clickTab(x int) (tea.Model, tea.Cmd) {
 
 func (m *model) clickRow(idx int) (tea.Model, tea.Cmd) {
 	rows := m.rowKeys()
-	if idx < 0 || idx >= len(rows) {
+	if idx < 0 || len(rows) == 0 {
 		return *m, nil
 	}
-	m.sel[int(m.tab)] = rows[idx].key
+	// A click's row index is relative to what's currently drawn, which
+	// (like the arrow keys) may be scrolled to follow the selection rather
+	// than always starting at row 0 — see windowRows in tables.go.
+	i := int(m.tab)
+	selIdx := -1
+	for j, r := range rows {
+		if r.key == m.sel[i] {
+			selIdx = j
+			break
+		}
+	}
+	start, end := windowRows(len(rows), selIdx, m.tabRowsBudget())
+	target := start + idx
+	if target < start || target >= end {
+		return *m, nil
+	}
+	m.sel[i] = rows[target].key
 	return m.openSelected()
 }
 

@@ -24,9 +24,65 @@ func ioCell(hidden bool, v float64, width int, selected bool) string {
 // escape sequences instead of composing with them.
 func withBG(st lipgloss.Style, selected bool) lipgloss.Style {
 	if selected {
-		return st.Background(colLine)
+		return st.Background(colSelBg).Bold(true)
 	}
 	return st
+}
+
+// gutterW is the width of the "which row is selected" marker column that
+// prefixes every table — a color-only highlight is easy to lose track of
+// while arrowing through a long list, so every row also carries an explicit
+// glyph that only the selected row has.
+const gutterW = 2
+
+func gutterCell(selected bool) string {
+	if selected {
+		return cell("▸", gutterW, false, stAccent.Bold(true))
+	}
+	return cell("", gutterW, false, stPlain)
+}
+
+// windowRows picks the [start,end) slice of a `total`-row list to actually
+// draw so the row at selIdx stays inside a `budget`-row viewport. Without
+// this, every table always drew rows [0,budget) regardless of selection —
+// arrowing down past the bottom of the visible rows moved the selection
+// state correctly but there was nothing left on screen still highlighted,
+// so the cursor appeared to just vanish.
+func windowRows(total, selIdx, budget int) (start, end int) {
+	if budget < 1 {
+		budget = 1
+	}
+	if total <= budget {
+		return 0, total
+	}
+	dataRows := budget - 1 // reserve the last line for a scroll-position notice
+	if dataRows < 1 {
+		dataRows = 1
+	}
+	start = selIdx - dataRows/2
+	if start < 0 {
+		start = 0
+	}
+	if max := total - dataRows; start > max {
+		start = max
+	}
+	end = start + dataRows
+	if end > total {
+		end = total
+	}
+	return start, end
+}
+
+func scrollNotice(total, start, end int) string {
+	above, below := start, total-end
+	switch {
+	case above > 0 && below > 0:
+		return fmt.Sprintf("↑ %d above · ↓ %d below — ↑↓ to scroll", above, below)
+	case above > 0:
+		return fmt.Sprintf("↑ %d above (bottom) — ↑↓ to scroll", above)
+	default:
+		return fmt.Sprintf("↓ %d more below — ↑↓ to scroll", below)
+	}
 }
 
 func (m model) renderProcs(w, h int) string {
@@ -44,8 +100,8 @@ func (m model) renderProcs(w, h int) string {
 	// below 980px) rather than squeezing Command down to an unreadable
 	// sliver just to keep every column present.
 	unitW := 16
-	noUnitFixed, noUnitGaps := 6+11+3+6+9+9+9, 7
-	withUnitFixed, withUnitGaps := noUnitFixed+unitW, 8
+	noUnitFixed, noUnitGaps := gutterW+6+11+3+6+9+9+9, 8
+	withUnitFixed, withUnitGaps := noUnitFixed+unitW, 9
 	cmdWWithUnit := w - withUnitFixed - withUnitGaps*sepW
 	showUnit := cmdWWithUnit >= 18
 	cmdW := cmdWWithUnit
@@ -56,24 +112,30 @@ func (m model) renderProcs(w, h int) string {
 		cmdW = 12
 	}
 
-	headerCells := []string{cell("PID", 6, true, stHeader), cell("USER", 11, false, stHeader), cell("ST", 3, false, stHeader),
-		cell("CPU%", 6, true, stHeader), cell("MEM", 9, true, stHeader), cell("READ", 9, true, stHeader), cell("WRITE", 9, true, stHeader)}
+	headerCells := []string{centerCell("", gutterW, stHeader), centerCell("PID", 6, stHeader), centerCell("USER", 11, stHeader), centerCell("ST", 3, stHeader),
+		centerCell("CPU%", 6, stHeader), centerCell("MEM", 9, stHeader), centerCell("READ", 9, stHeader), centerCell("WRITE", 9, stHeader)}
 	if showUnit {
-		headerCells = append(headerCells, cell("UNIT", unitW, false, stHeader))
+		headerCells = append(headerCells, centerCell("UNIT", unitW, stHeader))
 	}
-	headerCells = append(headerCells, cell("COMMAND", cmdW, false, stHeader))
+	headerCells = append(headerCells, centerCell("COMMAND", cmdW, stHeader))
 	header := joinCols(headerCells...)
 
 	var lines []string
 	lines = append(lines, header)
 	selKey := m.sel[tabProcs]
+	selIdx := -1
 	for i, p := range list {
-		if i >= h-1 {
-			lines = append(lines, stFaint.Render(fmt.Sprintf("… %d more (narrow the filter to see them)", len(list)-i)))
+		if strconv.Itoa(int(p.PID)) == selKey {
+			selIdx = i
 			break
 		}
-		sel := strconv.Itoa(int(p.PID)) == selKey
+	}
+	start, end := windowRows(len(list), selIdx, h-1)
+	for i := start; i < end; i++ {
+		p := list[i]
+		sel := i == selIdx
 		rowCells := []string{
+			gutterCell(sel),
 			cell(strconv.Itoa(int(p.PID)), 6, true, withBG(stPlain, sel)),
 			cell(p.User, 11, false, withBG(stMuted, sel)),
 			cell(p.State, 3, false, withBG(stateStyle(p.State), sel)),
@@ -87,6 +149,9 @@ func (m model) renderProcs(w, h int) string {
 		}
 		rowCells = append(rowCells, cell(cmdOf(p), cmdW, false, withBG(stMuted, sel)))
 		lines = append(lines, joinColsSel(sel, rowCells...))
+	}
+	if end < len(list) || start > 0 {
+		lines = append(lines, stFaint.Render(scrollNotice(len(list), start, end)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -103,22 +168,27 @@ func (m model) renderPorts(w, h int) string {
 		}
 		return stMuted.Render(msg)
 	}
-	remoteW := w - (6 + 6 + 15 + 11 + 16 + 6) - 6*sepW
+	remoteW := w - (gutterW + 6 + 6 + 15 + 11 + 16 + 6) - 7*sepW
 	if remoteW < 10 {
 		remoteW = 10
 	}
-	header := joinCols(cell("PORT", 6, true, stHeader), cell("PROTO", 6, false, stHeader), cell("ADDRESS", 15, false, stHeader),
-		cell("STATE", 11, false, stHeader), cell("PROCESS", 16, false, stHeader), cell("PID", 6, true, stHeader), cell("REMOTE", remoteW, false, stHeader))
+	header := joinCols(centerCell("", gutterW, stHeader), centerCell("PORT", 6, stHeader), centerCell("PROTO", 6, stHeader), centerCell("ADDRESS", 15, stHeader),
+		centerCell("STATE", 11, stHeader), centerCell("PROCESS", 16, stHeader), centerCell("PID", 6, stHeader), centerCell("REMOTE", remoteW, stHeader))
 
 	var lines []string
 	lines = append(lines, header)
 	selKey := m.sel[tabPorts]
+	selIdx := -1
 	for i, c := range list {
-		if i >= h-1 {
-			lines = append(lines, stFaint.Render(fmt.Sprintf("… %d more (narrow the filter to see them)", len(list)-i)))
+		if connKey(c) == selKey {
+			selIdx = i
 			break
 		}
-		sel := connKey(c) == selKey
+	}
+	start, end := windowRows(len(list), selIdx, h-1)
+	for i := start; i < end; i++ {
+		c := list[i]
+		sel := i == selIdx
 		proc, ok := m.procByPID(c.PID)
 		name := withBG(stFaint, sel).Render("hidden")
 		if ok {
@@ -145,11 +215,14 @@ func (m model) renderPorts(w, h int) string {
 		if c.PID > 0 {
 			pidStr = strconv.Itoa(int(c.PID))
 		}
-		row := joinColsSel(sel,
+		row := joinColsSel(sel, gutterCell(sel),
 			cell(strconv.Itoa(int(c.LPort)), 6, true, withBG(stPlain.Bold(true), sel)), cell(c.Proto, 6, false, withBG(stMuted, sel)),
 			cell(addr, 15, false, withBG(addrStyle, sel)), cell(c.State, 11, false, withBG(stStyle, sel)), pad(name, 16, sel),
 			cell(pidStr, 6, true, withBG(stPlain, sel)), cell(c.Remote, remoteW, false, withBG(stMuted, sel)))
 		lines = append(lines, row)
+	}
+	if end < len(list) || start > 0 {
+		lines = append(lines, stFaint.Render(scrollNotice(len(list), start, end)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -238,8 +311,8 @@ func (m model) renderDisks(w, h int) string {
 	if len(m.snap.Disks) == 0 {
 		b.WriteString(stMuted.Render("No block devices.") + "\n")
 	} else {
-		b.WriteString(joinCols(cell("DEVICE", 10, false, stHeader), cell("R/S", 7, true, stHeader), cell("W/S", 7, true, stHeader),
-			cell("READ", 9, true, stHeader), cell("WRITE", 9, true, stHeader), cell("AWAIT", 8, true, stHeader), cell("UTIL%", 6, true, stHeader)) + "\n")
+		b.WriteString(joinCols(centerCell("DEVICE", 10, stHeader), centerCell("R/S", 7, stHeader), centerCell("W/S", 7, stHeader),
+			centerCell("READ", 9, stHeader), centerCell("WRITE", 9, stHeader), centerCell("AWAIT", 8, stHeader), centerCell("UTIL%", 6, stHeader)) + "\n")
 		lines := capRows(m.snap.Disks, half, func(d collect.Disk) string {
 			return joinCols(cell(d.Name, 10, false, stPlain.Bold(true)), cell(f1(d.RIOPS), 7, true, stPlain), cell(f1(d.WIOPS), 7, true, stPlain),
 				cell(rateFmt(d.RBps), 9, true, stPlain), cell(rateFmt(d.WBps), 9, true, stPlain),
@@ -255,8 +328,8 @@ func (m model) renderDisks(w, h int) string {
 		if mountW < 10 {
 			mountW = 10
 		}
-		b.WriteString(joinCols(cell("MOUNT", mountW, false, stHeader), cell("TYPE", 8, false, stHeader), cell("SIZE", 9, true, stHeader),
-			cell("FREE", 9, true, stHeader), cell("USED%", 7, true, stHeader), cell("INODE%", 7, true, stHeader)) + "\n")
+		b.WriteString(joinCols(centerCell("MOUNT", mountW, stHeader), centerCell("TYPE", 8, stHeader), centerCell("SIZE", 9, stHeader),
+			centerCell("FREE", 9, stHeader), centerCell("USED%", 7, stHeader), centerCell("INODE%", 7, stHeader)) + "\n")
 		lines := capRows(m.snap.FS, half, func(f collect.FS) string {
 			if f.Stale {
 				return cell(f.Mount, mountW, false, stPlain.Bold(true)) + colSep + stCrit.Render(truncate("not responding — statfs is hanging (dead network mount?)", w-mountW-sepW))
@@ -298,8 +371,8 @@ func (m model) renderNet(w, h int) string {
 		if nameW < 8 {
 			nameW = 8
 		}
-		b.WriteString(joinCols(cell("NAME", nameW, false, stHeader), cell("RX", 9, true, stHeader), cell("TX", 9, true, stHeader),
-			cell("PPS IN", 8, true, stHeader), cell("PPS OUT", 8, true, stHeader), cell("ERR/S", 7, true, stHeader), cell("DROP/S", 7, true, stHeader)) + "\n")
+		b.WriteString(joinCols(centerCell("NAME", nameW, stHeader), centerCell("RX", 9, stHeader), centerCell("TX", 9, stHeader),
+			centerCell("PPS IN", 8, stHeader), centerCell("PPS OUT", 8, stHeader), centerCell("ERR/S", 7, stHeader), centerCell("DROP/S", 7, stHeader)) + "\n")
 		// A container host can have dozens to hundreds of veth interfaces —
 		// cap the list against the tab's height budget like every other
 		// table does, instead of printing an unbounded interface list.

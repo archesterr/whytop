@@ -6,6 +6,7 @@ var (
 	colBg     = lipgloss.Color("#1a1f27")
 	colPanel  = lipgloss.Color("#212733")
 	colLine   = lipgloss.Color("#313a4a")
+	colSelBg  = lipgloss.Color("#39507a")
 	colText   = lipgloss.Color("#d9dee7")
 	colMuted  = lipgloss.Color("#8b94a5")
 	colFaint  = lipgloss.Color("#5d6677")

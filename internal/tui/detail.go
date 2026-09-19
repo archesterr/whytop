@@ -167,8 +167,8 @@ func (m model) renderSockets(nodes []collect.Proc, w, h int) string {
 		return conns[i].LPort < conns[j].LPort
 	})
 	remoteW := max0(w - (6 + 6 + 12) - 3*sepW)
-	header := joinCols(cell("PORT", 6, true, stHeader), cell("PROTO", 6, false, stHeader),
-		cell("STATE", 12, false, stHeader), cell("REMOTE", remoteW, false, stHeader))
+	header := joinCols(centerCell("PORT", 6, stHeader), centerCell("PROTO", 6, stHeader),
+		centerCell("STATE", 12, stHeader), centerCell("REMOTE", remoteW, stHeader))
 	lines := capRows(conns, h-1, func(c collect.Conn) string {
 		stStyle := stPlain
 		if c.State == "LISTEN" {
@@ -223,8 +223,8 @@ func (m model) renderTree(nodes []collect.Proc, w, h int) string {
 	if cmdW < 10 {
 		cmdW = 10
 	}
-	header := joinCols(cell("PID", 6, true, stHeader), cell("ST", 3, false, stHeader), cell("CPU%", 6, true, stHeader),
-		cell("MEM", 9, true, stHeader), cell("I/O", 9, true, stHeader), cell("COMMAND", cmdW, false, stHeader))
+	header := joinCols(centerCell("PID", 6, stHeader), centerCell("ST", 3, stHeader), centerCell("CPU%", 6, stHeader),
+		centerCell("MEM", 9, stHeader), centerCell("I/O", 9, stHeader), centerCell("COMMAND", cmdW, stHeader))
 	var lines []string
 	lines = append(lines, header)
 	for i, p := range nodes {
