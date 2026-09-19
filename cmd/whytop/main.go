@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/archesterr/whytop/internal/tui"
 	"github.com/archesterr/whytop/internal/web"
 )
 
@@ -21,6 +22,7 @@ func main() {
 	token := flag.String("token", "", "access token (random when empty)")
 	port := flag.Int("port", 0, "open the process listening on this port")
 	pid := flag.Int("pid", 0, "open this PID")
+	useTUI := flag.Bool("tui", false, "run in the terminal instead of starting a web server (no browser, no tunnel — just SSH in)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -42,14 +44,19 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	err := web.Run(ctx, web.Options{
-		Listen:   *listen,
-		Interval: *interval,
-		Token:    *token,
-		Version:  version,
-		PID:      *pid,
-		Port:     *port,
-	})
+	var err error
+	if *useTUI {
+		err = tui.Run(ctx, tui.Options{Interval: *interval, Version: version, PID: *pid, Port: *port})
+	} else {
+		err = web.Run(ctx, web.Options{
+			Listen:   *listen,
+			Interval: *interval,
+			Token:    *token,
+			Version:  version,
+			PID:      *pid,
+			Port:     *port,
+		})
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "whytop:", err)
 		os.Exit(1)

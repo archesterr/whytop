@@ -1,0 +1,69 @@
+package tui
+
+import "github.com/charmbracelet/lipgloss"
+
+// Colors mirror the web UI's palette (internal/web/static/index.html) so the
+// two front ends feel like the same product.
+var (
+	colBg     = lipgloss.Color("#1a1f27")
+	colPanel  = lipgloss.Color("#212733")
+	colLine   = lipgloss.Color("#313a4a")
+	colText   = lipgloss.Color("#d9dee7")
+	colMuted  = lipgloss.Color("#8b94a5")
+	colFaint  = lipgloss.Color("#5d6677")
+	colAccent = lipgloss.Color("#8fb3ff")
+	colOK     = lipgloss.Color("#7cc79a")
+	colWarn   = lipgloss.Color("#e2b75f")
+	colCrit   = lipgloss.Color("#e5736f")
+	colMem    = lipgloss.Color("#c49bf5")
+	colIO     = lipgloss.Color("#4fd1c5")
+	colLoad   = lipgloss.Color("#f28fb0")
+	colPSI    = lipgloss.Color("#f2a35c")
+)
+
+var (
+	stLogo      = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
+	stHost      = lipgloss.NewStyle().Bold(true).Foreground(colText)
+	stMuted     = lipgloss.NewStyle().Foreground(colMuted)
+	stFaint     = lipgloss.NewStyle().Foreground(colFaint)
+	stOK        = lipgloss.NewStyle().Foreground(colOK)
+	stWarn      = lipgloss.NewStyle().Foreground(colWarn)
+	stCrit      = lipgloss.NewStyle().Foreground(colCrit)
+	stAccent    = lipgloss.NewStyle().Foreground(colAccent)
+	stBold      = lipgloss.NewStyle().Bold(true).Foreground(colText)
+	stHeader    = lipgloss.NewStyle().Foreground(colMuted).Bold(true)
+	stTabOn     = lipgloss.NewStyle().Bold(true).Foreground(colText).Underline(true)
+	stTabOff    = lipgloss.NewStyle().Foreground(colMuted)
+	stFooterKey = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colMuted).Padding(0, 1)
+	stFooterTxt = lipgloss.NewStyle().Foreground(colMuted)
+	stDanger    = lipgloss.NewStyle().Bold(true).Foreground(colCrit)
+	stConfirm   = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colWarn).Padding(0, 1)
+	stToastOK   = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colOK).Padding(0, 1)
+	stToastErr  = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colCrit).Padding(0, 1)
+	stBox       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colLine).Padding(0, 1)
+)
+
+// lvl returns a style for a value against warn/crit thresholds.
+func lvl(v, warn, crit float64) lipgloss.Style {
+	switch {
+	case v >= crit:
+		return stCrit
+	case v >= warn:
+		return stWarn
+	default:
+		return lipgloss.NewStyle().Foreground(colText)
+	}
+}
+
+func stateStyle(s string) lipgloss.Style {
+	switch s {
+	case "R":
+		return stOK
+	case "D":
+		return stCrit
+	case "Z", "T", "t":
+		return stWarn
+	default:
+		return stMuted
+	}
+}
