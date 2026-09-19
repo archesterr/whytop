@@ -26,6 +26,11 @@ checksum:
   name_template: checksums.txt
 
 changelog:
-  use: github
+  # "git" reads local commit history from the checkout (which actions/checkout
+  # fetches in full via fetch-depth: 0). "github" instead asks the GitHub API
+  # to compare the previous and current tags server-side — an extra moving
+  # part that fails outright if a tag ever gets deleted (as happened here),
+  # even though the release itself has everything it needs locally.
+  use: git
   filters:
     exclude: ["^docs:", "^chore:", "^ci:", "^test:"]
