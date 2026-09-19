@@ -28,7 +28,7 @@ func (m model) procRows() []collect.Proc {
 	if f != "" {
 		out := list[:0]
 		for _, p := range list {
-			hay := strconv.Itoa(int(p.PID)) + " " + strings.ToLower(p.Name+" "+p.User+" "+unitName(p.Unit)+" "+p.Cmdline)
+			hay := strconv.Itoa(int(p.PID)) + " " + strings.ToLower(p.Name+" "+p.User+" "+unitName(p.Unit)+" "+p.Cmdline+" "+p.Container+" "+p.Runtime)
 			if strconv.Itoa(int(p.PID)) == f || strings.Contains(hay, f) {
 				out = append(out, p)
 			}

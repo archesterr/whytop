@@ -171,20 +171,17 @@ func max3(a, b, c float64) float64 {
 
 func (m model) renderTabs(w int) string {
 	var parts []string
-	names := []tab{tabProcs, tabPorts, tabDisks, tabNet}
-	counts := m.tabCounts()
-	for _, t := range names {
-		base := fmt.Sprintf(" %d %s ", int(t)+1, t.String())
+	for _, r := range tabRegions(m.tabCounts()) {
 		style := stTabOff
-		if t == m.tab {
+		if r.t == m.tab {
 			style = stTabOn
 		}
 		// Render each segment from plain text only — wrapping a string that
 		// already contains another segment's ANSI codes in a second
 		// .Render() call corrupts the escape sequences.
-		part := style.Render(base)
-		if counts[t] >= 0 {
-			part += stFaint.Render(fmt.Sprintf("%d ", counts[t]))
+		part := style.Render(r.base)
+		if r.countText != "" {
+			part += stFaint.Render(r.countText)
 		}
 		parts = append(parts, part)
 	}
