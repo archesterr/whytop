@@ -176,9 +176,7 @@ func (m *model) openSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if pid <= 0 {
-		m.toast = "The owner of this socket is hidden. Run whytop with sudo."
-		m.toastStyle = stToastErr.Render
-		return m, tea.Tick(toastTTL, func(time.Time) tea.Msg { return clearToastMsg{} })
+		return m.showToast("The owner of this socket is hidden. Run whytop with sudo.", false)
 	}
 	m.detail = &detailState{pid: pid}
 	return m, tea.Batch(m.loadExtraCmd(pid), m.loadJournalCmd(pid))
@@ -230,8 +228,17 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		p, ok := m.procByPID(m.detail.pid)
-		if !ok || m.detail.restartBlocked != "" {
+		if !ok {
 			break
+		}
+		if !m.detail.loaded {
+			// Still waiting on the async CanRestart check — say so instead
+			// of either silently doing nothing or offering a confirm we
+			// might have to reject after the fact.
+			return m.showToast("Still checking whether this process can be restarted…", false)
+		}
+		if m.detail.restartBlocked != "" {
+			return m.showToast(m.detail.restartBlocked, false)
 		}
 		unit := p.Unit
 		pid := p.PID
@@ -241,6 +248,20 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// showToast sets a toast message with an auto-clear timer, for feedback that
+// doesn't come from an async action (e.g. an immediate validation failure).
+func (m *model) showToast(text string, ok bool) (tea.Model, tea.Cmd) {
+	m.toast = text
+	if ok {
+		m.toastStyle = stToastOK.Render
+	} else {
+		m.toastStyle = stToastErr.Render
+	}
+	m.toastGen++
+	gen := m.toastGen
+	return m, tea.Tick(toastTTL, func(time.Time) tea.Msg { return clearToastMsg{gen: gen} })
 }
 
 // currentTree returns the process (with its descendants) rooted at the

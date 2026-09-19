@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/archesterr/whytop/internal/collect"
 )
 
 func ioCell(hidden bool, v float64, width int, selected bool) string {
@@ -181,7 +183,35 @@ func truncate(s string, w int) string {
 	return string(r[:w-1]) + "…"
 }
 
+// capRows returns at most max rows plus, if truncated, an "N more" notice —
+// the same overflow handling renderProcs/renderPorts use. Without this,
+// tabs with an unbounded row source (many block devices, many mounts, many
+// interfaces — routine on a container host) can print far more lines than
+// the terminal has, pushing the footer and its key hints off-screen.
+func capRows[T any](rows []T, maxRows int, render func(T) string) []string {
+	if maxRows < 1 {
+		maxRows = 1
+	}
+	lines := make([]string, 0, maxRows+1)
+	for i, r := range rows {
+		if i >= maxRows {
+			lines = append(lines, stFaint.Render(fmt.Sprintf("… %d more", len(rows)-i)))
+			break
+		}
+		lines = append(lines, render(r))
+	}
+	return lines
+}
+
 func (m model) renderDisks(w, h int) string {
+	// Split the tab's height budget between the two sections (each with a
+	// section header + column header of its own), so a host with many disks
+	// doesn't crowd the filesystems section off-screen or vice versa.
+	half := max0(h/2 - 3)
+	if half < 3 {
+		half = 3
+	}
+
 	var b strings.Builder
 	b.WriteString(stHeader.Render("BLOCK DEVICES") + "\n")
 	if len(m.snap.Disks) == 0 {
@@ -189,11 +219,12 @@ func (m model) renderDisks(w, h int) string {
 	} else {
 		b.WriteString(cell("DEVICE", 10, false, stHeader) + " " + cell("R/S", 7, true, stHeader) + " " + cell("W/S", 7, true, stHeader) + " " +
 			cell("READ", 9, true, stHeader) + " " + cell("WRITE", 9, true, stHeader) + " " + cell("AWAIT", 8, true, stHeader) + " " + cell("UTIL%", 6, true, stHeader) + "\n")
-		for _, d := range m.snap.Disks {
-			b.WriteString(cell(d.Name, 10, false, stPlain.Bold(true)) + " " + cell(f1(d.RIOPS), 7, true, stPlain) + " " + cell(f1(d.WIOPS), 7, true, stPlain) + " " +
+		lines := capRows(m.snap.Disks, half, func(d collect.Disk) string {
+			return cell(d.Name, 10, false, stPlain.Bold(true)) + " " + cell(f1(d.RIOPS), 7, true, stPlain) + " " + cell(f1(d.WIOPS), 7, true, stPlain) + " " +
 				cell(rateFmt(d.RBps), 9, true, stPlain) + " " + cell(rateFmt(d.WBps), 9, true, stPlain) + " " +
-				cell(f1(d.AwaitMs), 8, true, lvl(d.AwaitMs, 20, 100)) + " " + cell(f1(d.Util), 6, true, lvl(d.Util, 70, 90)) + "\n")
-		}
+				cell(f1(d.AwaitMs), 8, true, lvl(d.AwaitMs, 20, 100)) + " " + cell(f1(d.Util), 6, true, lvl(d.Util, 70, 90))
+		})
+		b.WriteString(strings.Join(lines, "\n") + "\n")
 	}
 	b.WriteString("\n" + stHeader.Render("FILESYSTEMS") + "\n")
 	if len(m.snap.FS) == 0 {
@@ -201,16 +232,14 @@ func (m model) renderDisks(w, h int) string {
 	} else {
 		b.WriteString(cell("MOUNT", 24, false, stHeader) + " " + cell("TYPE", 8, false, stHeader) + " " + cell("SIZE", 9, true, stHeader) + " " +
 			cell("FREE", 9, true, stHeader) + " " + cell("USED%", 7, true, stHeader) + " " + cell("INODE%", 7, true, stHeader) + "\n")
-		lines := []string{}
-		for _, f := range m.snap.FS {
+		lines := capRows(m.snap.FS, half, func(f collect.FS) string {
 			if f.Stale {
-				lines = append(lines, cell(f.Mount, 24, false, stPlain.Bold(true))+" "+stCrit.Render("not responding — statfs is hanging (dead network mount?)"))
-				continue
+				return cell(f.Mount, 24, false, stPlain.Bold(true)) + " " + stCrit.Render("not responding — statfs is hanging (dead network mount?)")
 			}
-			lines = append(lines, cell(f.Mount, 24, false, stPlain.Bold(true))+" "+cell(f.Type, 8, false, stMuted)+" "+
-				cell(bytesFmt(float64(f.Total)), 9, true, stPlain)+" "+cell(bytesFmt(float64(f.Free)), 9, true, stPlain)+" "+
-				cell(f1(f.UsedPct), 7, true, lvl(f.UsedPct, 80, 90))+" "+cell(f1(f.InodePct), 7, true, lvl(f.InodePct, 80, 90)))
-		}
+			return cell(f.Mount, 24, false, stPlain.Bold(true)) + " " + cell(f.Type, 8, false, stMuted) + " " +
+				cell(bytesFmt(float64(f.Total)), 9, true, stPlain) + " " + cell(bytesFmt(float64(f.Free)), 9, true, stPlain) + " " +
+				cell(f1(f.UsedPct), 7, true, lvl(f.UsedPct, 80, 90)) + " " + cell(f1(f.InodePct), 7, true, lvl(f.InodePct, 80, 90))
+		})
 		b.WriteString(strings.Join(lines, "\n"))
 	}
 	return b.String()
@@ -235,8 +264,14 @@ func (m model) renderNet(w, h int) string {
 	} else {
 		b.WriteString(cell("NAME", 12, false, stHeader) + " " + cell("RX", 9, true, stHeader) + " " + cell("TX", 9, true, stHeader) + " " +
 			cell("PPS IN", 8, true, stHeader) + " " + cell("PPS OUT", 8, true, stHeader) + " " + cell("ERR/S", 7, true, stHeader) + " " + cell("DROP/S", 7, true, stHeader) + "\n")
-		var lines []string
-		for _, n := range m.snap.NICs {
+		// A container host can have dozens to hundreds of veth interfaces —
+		// cap the list against the tab's height budget like every other
+		// table does, instead of printing an unbounded interface list.
+		maxRows := max0(h - 6)
+		if maxRows < 3 {
+			maxRows = 3
+		}
+		lines := capRows(m.snap.NICs, maxRows, func(n collect.NIC) string {
 			errStyle, dropStyle := stPlain, stPlain
 			if n.ErrPs > 0 {
 				errStyle = stCrit
@@ -244,9 +279,9 @@ func (m model) renderNet(w, h int) string {
 			if n.DropPs > 0 {
 				dropStyle = stWarn
 			}
-			lines = append(lines, cell(n.Name, 12, false, stPlain.Bold(true))+" "+cell(rateFmt(n.RxBps), 9, true, stPlain)+" "+cell(rateFmt(n.TxBps), 9, true, stPlain)+" "+
-				cell(f1(n.RxPps), 8, true, stPlain)+" "+cell(f1(n.TxPps), 8, true, stPlain)+" "+cell(f1(n.ErrPs), 7, true, errStyle)+" "+cell(f1(n.DropPs), 7, true, dropStyle))
-		}
+			return cell(n.Name, 12, false, stPlain.Bold(true)) + " " + cell(rateFmt(n.RxBps), 9, true, stPlain) + " " + cell(rateFmt(n.TxBps), 9, true, stPlain) + " " +
+				cell(f1(n.RxPps), 8, true, stPlain) + " " + cell(f1(n.TxPps), 8, true, stPlain) + " " + cell(f1(n.ErrPs), 7, true, errStyle) + " " + cell(f1(n.DropPs), 7, true, dropStyle)
+		})
 		b.WriteString(strings.Join(lines, "\n"))
 	}
 	return b.String()

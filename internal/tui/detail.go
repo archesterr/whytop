@@ -75,20 +75,31 @@ func (m model) renderDetail(w, h int) string {
 	if d.loaded && d.extra.OOMScore != "" {
 		facts = append(facts, [2]string{"OOM score", d.extra.OOMScore + " (adjust " + d.extra.OOMAdj + ")"})
 	}
+	colW := w / 2
+	if colW < 24 {
+		colW = 24
+	}
 	for i := 0; i < len(facts); i += 2 {
 		left := stMuted.Render(pad2(facts[i][0], 12)) + " " + facts[i][1]
 		line := left
 		if i+1 < len(facts) {
 			right := stMuted.Render(pad2(facts[i+1][0], 12)) + " " + facts[i+1][1]
-			line = cell(left, w/2, false, stPlain) + right
+			// pad(), not cell(): left already carries other cells' ANSI
+			// codes (the colored state pill, "with children" annotations),
+			// and re-styling text that already contains styling corrupts
+			// the escape sequences instead of composing with them.
+			line = pad(left, colW, false) + right
 		}
 		b.WriteString(line + "\n")
 	}
 	b.WriteString("\n" + stMuted.Render("Command  ") + truncate(cmdOf(p), w-9) + "\n")
 
-	restartLine := "restart: available"
-	if d.restartBlocked != "" {
-		restartLine = "restart: " + d.restartBlocked
+	restartLine := "restart: checking…"
+	if d.loaded {
+		restartLine = "restart: available"
+		if d.restartBlocked != "" {
+			restartLine = "restart: " + d.restartBlocked
+		}
 	}
 	b.WriteString(stFaint.Render(restartLine) + "\n\n")
 
