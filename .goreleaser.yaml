@@ -1,0 +1,31 @@
+version: 2
+project_name: whytop
+
+builds:
+  - main: ./cmd/whytop
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+nfpms:
+  - package_name: whytop
+    maintainer: Armin Hossein Pour <you@example.com>
+    homepage: https://github.com/archesterr/whytop
+    description: Live terminal UI for troubleshooting Linux servers and desktops
+    license: MIT
+    formats: [deb, rpm]
+    bindir: /usr/bin
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  filters:
+    exclude: ["^docs:", "^chore:", "^ci:", "^test:"]

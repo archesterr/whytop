@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>whytop</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%238fb3ff'/%3E%3Cpath d='M3 11l3-4 3 2 4-5' stroke='%231a1f27' stroke-width='1.8' fill='none'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#1a1f27; --panel:#212733; --raise:#2a3242; --line:#313a4a; --line-soft:#262d3a; --hover:#232a37;
+  --text:#d9dee7; --muted:#8b94a5; --faint:#5d6677;
+  --accent:#8fb3ff; --ok:#7cc79a; --warn:#e2b75f; --crit:#e5736f;
+  --sans:"Inter","Segoe UI",system-ui,-apple-system,Ubuntu,Cantarell,sans-serif;
+  --mono:ui-monospace,"JetBrains Mono","Cascadia Mono","DejaVu Sans Mono",Menlo,monospace;
+  --drawer:min(760px,100vw);
+}
+@media (prefers-color-scheme: light){
+  :root{--bg:#f4f6f9; --panel:#fff; --raise:#e8edf6; --line:#dde2ea; --line-soft:#eceff4; --hover:#f0f3f8;
+    --text:#1f2633; --muted:#5f6b7d; --faint:#a1abb9; --accent:#3563d9; --ok:#2f8f5b; --warn:#a9750f; --crit:#c2413d}
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0; display:grid; grid-template-rows:auto auto auto 1fr auto; background:var(--bg); color:var(--text);
+  font:14px/1.45 var(--sans); -webkit-font-smoothing:antialiased; overflow:hidden}
+button{font:inherit; color:inherit}
+a{color:var(--accent); text-decoration:none} a:hover{text-decoration:underline}
+kbd{font:500 11px/1 var(--mono); padding:3px 6px; border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; background:var(--bg); color:var(--text)}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+/* header */
+.top{display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 20px 10px}
+.brand{display:flex; align-items:baseline; gap:16px; min-width:0}
+.logo{font-weight:700; letter-spacing:-.01em}
+.logo::before{content:""; display:inline-block; width:8px; height:8px; border-radius:2px; background:var(--accent); margin-right:8px; transform:translateY(-1px)}
+.host{font-weight:600}
+.meta{display:flex; gap:14px; color:var(--muted); font-size:13px; white-space:nowrap; overflow:hidden}
+.status{display:flex; align-items:center; gap:14px; font-size:13px; color:var(--muted); white-space:nowrap}
+.note{color:var(--warn)}
+.live{display:inline-flex; align-items:center; gap:8px}
+.live i{width:7px; height:7px; border-radius:50%; background:var(--faint)}
+.live.ok i{background:var(--ok); box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 22%,transparent)}
+.live.err{color:var(--crit)} .live.err i{background:var(--crit)}
+.live.paused{color:var(--warn)} .live.paused i{background:var(--warn)}
+
+/* vitals */
+.vitals{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:var(--panel)}
+.vital{padding:12px 20px; border-right:1px solid var(--line); color:var(--accent); min-width:0; min-height:86px}
+.vital:last-child{border-right:0}
+.vital.warn{color:var(--warn)} .vital.crit{color:var(--crit)}
+.v-label{color:var(--muted); font-size:12px}
+.v-row{display:flex; align-items:flex-end; justify-content:space-between; gap:12px}
+.v-value{color:var(--text); font-size:26px; font-weight:600; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.2}
+.vital.warn .v-value{color:var(--warn)} .vital.crit .v-value{color:var(--crit)}
+.spark{width:120px; height:32px; flex:none}
+.spark .l{fill:none; stroke:currentColor; stroke-width:1.5; vector-effect:non-scaling-stroke}
+.spark .a{fill:currentColor; opacity:.12}
+.v-sub{color:var(--muted); font-size:12px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.v-sub span+span{margin-left:10px}
+
+/* tab bar */
+.bar{display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 20px; border-bottom:1px solid var(--line)}
+.tabs{display:flex; gap:2px}
+.tabs button{background:none; border:0; padding:12px 12px 10px; color:var(--muted); border-bottom:2px solid transparent; cursor:pointer}
+.tabs button:hover{color:var(--text)}
+.tabs button[aria-selected="true"]{color:var(--text); border-bottom-color:var(--accent)}
+.tabs .count{color:var(--faint); font-size:12px; margin-left:5px; font-variant-numeric:tabular-nums}
+.tools{display:flex; align-items:center; gap:14px}
+.summary{display:flex; gap:14px; color:var(--muted); font-size:13px; white-space:nowrap}
+.chip{display:inline-flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer; white-space:nowrap}
+.chip:hover{border-color:var(--faint)}
+.chip kbd{padding:1px 5px; font-size:10px}
+.search input{width:280px; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:6px 10px; color:var(--text); font:inherit; font-size:13px}
+.search input:focus{outline:none; border-color:var(--accent)}
+
+/* content */
+main{overflow:auto; min-height:0}
+.block{padding:16px 20px 8px}
+.block h2{font-size:13px; font-weight:600; margin:0 0 6px}
+.hint{margin:0 0 10px; color:var(--muted); font-size:12px}
+.empty{padding:48px 20px; color:var(--muted); text-align:center}
+table{width:100%; border-collapse:collapse; font-size:13px}
+th{position:sticky; top:0; z-index:1; background:var(--bg); color:var(--muted); font-weight:500; font-size:12px; text-align:left;
+  padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; user-select:none}
+td{padding:5px 10px; border-bottom:1px solid var(--line-soft); white-space:nowrap; font-variant-numeric:tabular-nums}
+main > table th:first-child, main > table td:first-child{padding-left:20px}
+main > table th:last-child, main > table td:last-child{padding-right:20px}
+.block th:first-child, .block td:first-child{padding-left:0}
+.d-sec th:first-child, .d-sec td:first-child{padding-left:8px}
+th.sortable{cursor:pointer} th.sortable:hover, th.sorted{color:var(--text)}
+.num{text-align:right}
+.rows tbody tr{cursor:pointer}
+.rows tbody tr:hover td{background:var(--hover)}
+tr.sel td, .rows tbody tr.sel:hover td{background:var(--raise)}
+tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+td.cmd{font:12px/1.4 var(--mono); color:var(--muted); max-width:0; width:46%; overflow:hidden; text-overflow:ellipsis}
+td.unit{color:var(--accent); max-width:240px; overflow:hidden; text-overflow:ellipsis}
+td.user{max-width:150px; overflow:hidden; text-overflow:ellipsis}
+.strong{font-weight:600}
+.dim{color:var(--muted)} .warn{color:var(--warn)} .crit{color:var(--crit)} .ok{color:var(--ok)}
+tr.idle td{color:var(--faint)}
+.st{display:inline-block; min-width:18px; padding:0 4px; border-radius:4px; text-align:center; font:600 11px/18px var(--mono); color:var(--muted); background:var(--line-soft)}
+.st-R{color:var(--ok)} .st-D{color:#fff; background:var(--crit)} .st-Z{color:#1a1a1a; background:var(--warn)} .st-T,.st-t{color:var(--warn)}
+.meter{display:inline-block; width:72px; height:6px; border-radius:3px; background:var(--line); overflow:hidden; vertical-align:middle}
+.meter i{display:block; height:100%; background:var(--accent)}
+.meter.warn i{background:var(--warn)} .meter.crit i{background:var(--crit)}
+.stats{display:flex; flex-wrap:wrap; border:1px solid var(--line); border-radius:8px; background:var(--panel); margin-bottom:8px}
+.stat{padding:10px 18px; border-right:1px solid var(--line); min-width:150px}
+.stat:last-child{border-right:0}
+.s-label{color:var(--muted); font-size:12px}
+.s-value{font-size:18px; font-weight:600; font-variant-numeric:tabular-nums}
+.stat.warn .s-value{color:var(--warn)} .stat.crit .s-value{color:var(--crit)}
+
+/* footer */
+.keys{display:flex; align-items:center; gap:20px; padding:0 20px; height:36px; border-top:1px solid var(--line); background:var(--panel); color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden}
+.keys span{display:inline-flex; align-items:center; gap:7px}
+
+/* drawer */
+#drawer{position:fixed; top:0; right:0; bottom:36px; width:var(--drawer); background:var(--panel); border-left:1px solid var(--line);
+  box-shadow:-24px 0 48px -28px rgba(0,0,0,.5); display:flex; flex-direction:column; z-index:10; animation:slide .16s ease-out}
+@keyframes slide{from{transform:translateX(24px); opacity:0}}
+@media (prefers-reduced-motion: reduce){#drawer{animation:none}}
+@media (min-width:1900px){ body.has-drawer .top, body.has-drawer .vitals, body.has-drawer .bar, body.has-drawer main{margin-right:var(--drawer)} }
+.d-head{display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:16px 22px 12px; border-bottom:1px solid var(--line)}
+.d-name{font-size:18px; font-weight:600; overflow-wrap:anywhere}
+.d-sub{display:flex; gap:14px; color:var(--muted); font-size:13px; margin-top:2px}
+.d-sub .unit{color:var(--accent)}
+.icon{background:none; border:0; font-size:22px; line-height:1; color:var(--muted); cursor:pointer; padding:2px 8px; border-radius:6px}
+.icon:hover{color:var(--text); background:var(--raise)}
+.d-scroll{overflow:auto; flex:1; padding:14px 22px 24px}
+.actions{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px}
+.btn{display:inline-flex; align-items:center; gap:8px; background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:6px 12px; cursor:pointer; font-size:13px}
+.btn:hover:not(:disabled){border-color:var(--faint)}
+.btn:disabled{opacity:.45; cursor:not-allowed}
+.btn kbd{padding:1px 5px; font-size:10px; background:transparent}
+.btn.danger{color:var(--crit); border-color:color-mix(in srgb,var(--crit) 45%,var(--line))}
+.btn.solid{background:var(--crit); border-color:var(--crit); color:#fff}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--bg)}
+.facts{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px 22px; margin:0}
+.facts div{min-width:0}
+.facts dt{color:var(--muted); font-size:12px}
+.facts dd{margin:1px 0 0; overflow-wrap:anywhere}
+.facts .wide{grid-column:1/-1}
+.mono{font:12px/1.5 var(--mono)}
+.badge{display:inline-block; font-size:11px; line-height:16px; padding:0 6px; border-radius:4px; margin-left:6px; border:1px solid currentColor}
+.d-sec{margin-top:22px}
+.d-sec-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px}
+.d-sec h3{margin:0; font-size:13px; font-weight:600}
+.d-sec h3 .dim{font-weight:400; margin-left:6px}
+.d-sec table{font-size:12px}
+.d-sec th{background:var(--panel)}
+.d-sec .empty{padding:18px 0; text-align:left}
+.branch{color:var(--faint)}
+#d-log{margin:0; max-height:360px; overflow:auto; padding:10px 12px; background:var(--bg); border:1px solid var(--line); border-radius:7px;
+  font:12px/1.5 var(--mono); color:var(--muted); white-space:pre-wrap; overflow-wrap:anywhere}
+
+/* modal + toasts */
+.modal{position:fixed; inset:0; background:rgba(8,10,14,.55); display:grid; place-items:center; z-index:20}
+.m-box{width:min(440px,calc(100vw - 32px)); background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px 22px 18px; box-shadow:0 24px 60px rgba(0,0,0,.4)}
+.m-box h2{margin:0 0 6px; font-size:16px}
+.m-box p{margin:0 0 18px; color:var(--muted)}
+.m-actions{display:flex; justify-content:flex-end; gap:8px}
+#toasts{position:fixed; left:50%; bottom:50px; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:8px; z-index:30; pointer-events:none}
+.toast{background:var(--text); color:var(--bg); padding:8px 14px; border-radius:8px; font-size:13px; box-shadow:0 8px 24px rgba(0,0,0,.3); max-width:min(640px,90vw)}
+.toast.crit{background:var(--crit); color:#fff} .toast.warn{background:var(--warn); color:#1a1a1a} .toast.ok{background:var(--ok); color:#0e1a12}
+.fatal{max-width:520px; margin:18vh auto; padding:0 24px} .fatal h1{font-size:20px}
+
+@media (max-width:980px){
+  .vitals{grid-template-columns:repeat(2,minmax(0,1fr))} #v-psi{display:none} .vital:nth-child(2){border-right:0}
+  .summary, .meta{display:none} .search input{width:170px}
+  td.unit, th[data-sort="unit"], td.user, th[data-sort="user"]{display:none}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">whytop</span><span id="host" class="host"></span><span id="meta" class="meta"></span></div>
+  <div class="status"><span id="root-note" class="note" hidden title="Other users' sockets, disk I/O and open files are hidden">Limited view: run with sudo</span><span id="live" class="live"><i></i><span>Connecting</span></span></div>
+</header>
+<section class="vitals">
+  <div class="vital" id="v-cpu"></div><div class="vital" id="v-mem"></div><div class="vital" id="v-io"></div><div class="vital" id="v-load"></div><div class="vital" id="v-psi"></div>
+</section>
+<nav class="bar">
+  <div class="tabs" role="tablist">
+    <button role="tab" data-tab="procs">Processes<span class="count"></span></button>
+    <button role="tab" data-tab="ports">Ports<span class="count"></span></button>
+    <button role="tab" data-tab="disks">Disks<span class="count"></span></button>
+    <button role="tab" data-tab="net">Network<span class="count"></span></button>
+  </div>
+  <div class="tools">
+    <span id="summary" class="summary"></span>
+    <button id="all-toggle" class="chip" hidden></button>
+    <label class="search" id="search"><input id="filter" type="search" autocomplete="off" spellcheck="false" aria-label="Filter"></label>
+  </div>
+</nav>
+<main id="main"><div class="empty">Collecting the first sample…</div></main>
+<aside id="drawer" hidden aria-label="Process details">
+  <header class="d-head"><div id="d-title"></div><button class="icon" id="d-close" title="Close (Esc)" aria-label="Close">×</button></header>
+  <div class="d-scroll" id="d-scroll">
+    <div id="d-main"></div>
+    <section class="d-sec" id="d-log-sec">
+      <div class="d-sec-head"><h3>Journal</h3><button class="chip" id="d-log-reload">Reload <kbd>l</kbd></button></div>
+      <pre id="d-log"></pre>
+    </section>
+  </div>
+</aside>
+<div id="modal" class="modal" hidden>
+  <div class="m-box" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <h2 id="m-title"></h2><p id="m-body"></p>
+    <div class="m-actions"><button id="m-cancel" class="btn">Cancel</button><button id="m-ok" class="btn"></button></div>
+  </div>
+</div>
+<div id="toasts"></div>
+<footer class="keys" id="keys"></footer>
+
+<script>
+(() => {
+'use strict';
+const $ = (s, el = document) => el.querySelector(s);
+const token = new URLSearchParams(location.search).get('t') || '';
+const HIST = 90;
+
+const S = {
+  snap: null, tab: 'procs', filter: {procs: '', ports: ''}, sort: {key: 'cpu', dir: -1}, all: false, paused: false,
+  sel: {procs: null, ports: null, tree: null}, rows: {procs: [], ports: [], tree: []},
+  drawer: null, detail: null, modal: null, deep: null, timer: null, inflight: false, again: false,
+  hist: {cpu: [], mem: [], io: [], load: [], psi: []},
+};
+
+const STATES = {R: 'running', S: 'sleeping', D: 'waiting on I/O', Z: 'zombie', T: 'stopped', t: 'traced', I: 'idle', X: 'dead'};
+const TAB_KEYS = {'1': 'procs', '2': 'ports', '3': 'disks', '4': 'net'};
+
+/* ---------- formatting ---------- */
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+function bytes(n) {
+  n = Number(n) || 0;
+  if (n < 1024) return Math.round(n) + ' B';
+  const u = ['KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+  let i = -1;
+  do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+  return (n < 10 ? n.toFixed(1) : Math.round(n)) + ' ' + u[i];
+}
+const rate = n => (Number(n) || 0) < 1 ? '–' : bytes(n) + '/s';
+const f1 = n => (Number(n) || 0) < 0.05 ? '0' : Number(n).toFixed(1);
+const lvl = (v, w, c) => v >= c ? 'crit' : v >= w ? 'warn' : '';
+const unitName = u => (u || '').replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+const cmdOf = p => p.Cmdline || '[' + p.Name + ']';
+const listening = c => c.State === 'LISTEN' || (c.Proto.startsWith('udp') && !c.Remote);
+const meter = (v, w, c) => `<span class="meter ${lvl(v, w, c)}"><i style="width:${Math.min(100, Math.max(0, v)).toFixed(1)}%"></i></span>`;
+const empty = msg => `<div class="empty">${msg}</div>`;
+const spans = (...a) => a.filter(Boolean).map(x => `<span>${x}</span>`).join('');
+function dur(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m` : `${sec}s`;
+}
+
+/* ---------- data ---------- */
+async function api(path, opt = {}) {
+  const headers = {'X-Whytop-Token': token};
+  if (opt.body) headers['Content-Type'] = 'application/json';
+  const r = await fetch(path, {...opt, headers, cache: 'no-store'});
+  if (r.status === 401) { fatal(); throw new Error('Unauthorized'); }
+  const data = (r.headers.get('content-type') || '').includes('json') ? await r.json() : await r.text();
+  if (!r.ok) throw new Error((data && data.error) || String(data) || r.statusText);
+  return data;
+}
+
+function fatal() {
+  clearTimeout(S.timer);
+  document.body.innerHTML = '<div class="fatal"><h1>Access token missing or wrong</h1><p>Open the exact URL that whytop printed in the terminal. It ends with <code>?t=</code> followed by the token.</p></div>';
+}
+
+const needConns = () => S.tab === 'ports' || S.drawer !== null || !!S.deep;
+
+async function tick() {
+  if (S.inflight) { S.again = true; return; }
+  clearTimeout(S.timer);
+  S.inflight = true;
+  let wait = S.snap ? S.snap.Interval : 1000;
+  try {
+    if (!S.paused) {
+      const s = await api('/api/snapshot' + (needConns() ? '?conns=1' : ''));
+      for (const k of ['Procs', 'Conns', 'Disks', 'FS', 'NICs']) s[k] = s[k] || [];
+      s.byPid = new Map(s.Procs.map(p => [p.PID, p]));
+      S.snap = s;
+      wait = s.Interval || 2000;
+      pushHist(s);
+      if (S.drawer !== null) loadDetail();
+      render();
+      deepLink();
+      live('ok');
+    }
+  } catch (e) {
+    if (e.message === 'Unauthorized') return;
+    live('err', e.message);
+    wait = 1500;
+  } finally {
+    S.inflight = false;
+  }
+  if (S.again) { S.again = false; wait = 0; }
+  S.timer = setTimeout(tick, wait);
+}
+const kick = () => { clearTimeout(S.timer); S.timer = setTimeout(tick, 0); };
+
+function pushHist(s) {
+  const cores = s.CPU.Cores || 1;
+  const add = (k, v) => { const a = S.hist[k]; a.push(v); if (a.length > HIST) a.shift(); };
+  add('cpu', s.CPU.Busy);
+  add('mem', s.Mem.UsedPct);
+  add('io', s.CPU.Iowait);
+  add('load', s.Load1 / cores * 100);
+  add('psi', s.PSI.Available ? Math.max(s.PSI.CPUSome, s.PSI.MemSome, s.PSI.IOSome) : 0);
+}
+
+/* ---------- render ---------- */
+function render() {
+  if (!S.snap) return;
+  renderVitals();
+  renderBar();
+  renderMain();
+  renderDrawer();
+  renderKeys();
+}
+
+function live(state, msg) {
+  const el = $('#live');
+  el.className = 'live ' + (S.paused ? 'paused' : state);
+  el.lastChild.textContent = S.paused ? 'Paused' : state !== 'ok' ? `Disconnected: ${msg}` : S.snap ? `Live, every ${S.snap.Interval / 1000}s` : 'Connecting';
+}
+
+function spark(a, max) {
+  if (a.length < 2) return '<svg class="spark" viewBox="0 0 120 32" aria-hidden="true"></svg>';
+  const m = Math.max(max, ...a) || 1, step = 120 / (Math.min(HIST, Math.max(a.length, 30)) - 1), off = 120 - (a.length - 1) * step;
+  const pts = a.map((v, i) => [off + i * step, 31 - (v / m) * 29]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('');
+  return `<svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"><path class="a" d="${line}L120 32L${pts[0][0].toFixed(1)} 32Z"/><path class="l" d="${line}"/></svg>`;
+}
+
+function vital(id, label, value, sub, hist, max, level) {
+  const el = $('#v-' + id);
+  el.className = 'vital ' + level;
+  el.innerHTML = `<div class="v-label">${label}</div><div class="v-row"><div class="v-value">${value}</div>${spark(hist, max)}</div><div class="v-sub">${sub}</div>`;
+}
+
+function renderVitals() {
+  const s = S.snap, c = s.CPU, m = s.Mem, cores = c.Cores || 1;
+  let dstate = 0, zombies = 0;
+  for (const p of s.Procs) { if (p.State === 'D') dstate++; else if (p.State === 'Z') zombies++; }
+  $('#host').textContent = s.Host;
+  $('#meta').innerHTML = spans(`up ${dur(s.Uptime / 1e9)}`, `${cores} cores`, `${s.Procs.length} processes`,
+    zombies && `<span class="warn">${zombies} zombie${zombies > 1 ? 's' : ''}</span>`);
+  $('#root-note').hidden = s.Root;
+  vital('cpu', 'CPU', f1(c.Busy) + '%', spans(`user ${f1(c.User)}`, `system ${f1(c.System)}`, `steal ${f1(c.Steal)}`),
+    S.hist.cpu, 100, lvl(c.Busy, 70, 90));
+  vital('mem', 'Memory', f1(m.UsedPct) + '%', spans(`${bytes(m.Used)} of ${bytes(m.Total)}`, m.SwapTotal && `swap ${f1(m.SwapPct)}%`),
+    S.hist.mem, 100, lvl(m.UsedPct, 80, 92));
+  vital('io', 'I/O wait', f1(c.Iowait) + '%', dstate ? `<span class="crit">${dstate} process${dstate > 1 ? 'es' : ''} blocked on I/O</span>` : 'Nothing blocked on I/O',
+    S.hist.io, 10, lvl(c.Iowait, 3, 10));
+  vital('load', 'Load', s.Load1.toFixed(2), spans(`5m ${s.Load5.toFixed(2)}`, `15m ${s.Load15.toFixed(2)}`, `${(s.Load1 / cores).toFixed(2)} per core`),
+    S.hist.load, 100, lvl(s.Load1 / cores, 0.7, 1));
+  if (s.PSI.Available) {
+    const p = s.PSI, worst = Math.max(p.CPUSome, p.MemSome, p.IOSome);
+    vital('psi', 'Pressure', f1(worst) + '%', spans(`cpu ${f1(p.CPUSome)}`, `mem ${f1(p.MemSome)}`, `io ${f1(p.IOSome)}`), S.hist.psi, 10, lvl(worst, 5, 20));
+  } else {
+    vital('psi', 'Pressure', '–', 'Not supported by this kernel', [], 1, '');
+  }
+}
+
+function renderBar() {
+  const s = S.snap;
+  const listen = s.ConnsCollected ? s.Conns.filter(listening).length : '';
+  const counts = {procs: s.Procs.length, ports: listen, disks: s.Disks.length, net: s.NICs.length};
+  document.querySelectorAll('.tabs button').forEach(b => {
+    b.setAttribute('aria-selected', b.dataset.tab === S.tab);
+    b.querySelector('.count').textContent = counts[b.dataset.tab];
+  });
+  const list = S.tab === 'procs' || S.tab === 'ports';
+  const f = $('#filter');
+  $('#search').hidden = !list;
+  if (list && document.activeElement !== f) f.value = S.filter[S.tab];
+  f.placeholder = S.tab === 'ports' ? 'Filter by port, process or address' : 'Filter by name, user, unit or PID';
+  const all = $('#all-toggle');
+  all.hidden = S.tab !== 'ports';
+  all.innerHTML = `${S.all ? 'All sockets' : 'Listening only'} <kbd>a</kbd>`;
+  let sum = '';
+  if (S.tab === 'ports' && s.ConnsCollected) {
+    const n = {};
+    for (const c of s.Conns) n[c.State] = (n[c.State] || 0) + 1;
+    const cw = n.CLOSE_WAIT || 0;
+    sum = spans(`${n.ESTABLISHED || 0} established`, `${n.TIME_WAIT || 0} time-wait`, `<span class="${cw ? 'crit' : ''}">${cw} close-wait</span>`);
+  }
+  $('#summary').innerHTML = sum;
+}
+
+function renderMain() {
+  ({procs: renderProcs, ports: renderPorts, disks: renderDisks, net: renderNet})[S.tab]();
+}
+const setMain = html => { $('#main').innerHTML = html; };
+
+/* processes */
+const PSORT = {
+  pid: {get: p => p.PID, dir: 1, label: 'PID'}, user: {get: p => p.User, dir: 1, label: 'user'},
+  state: {get: p => p.State, dir: 1, label: 'state'}, cpu: {get: p => p.CPU, dir: -1, label: 'CPU'},
+  mem: {get: p => p.RSS, dir: -1, label: 'memory'}, read: {get: p => p.ReadBps, dir: -1, label: 'disk read'},
+  write: {get: p => p.WriteBps, dir: -1, label: 'disk write'}, io: {get: p => p.ReadBps + p.WriteBps, dir: -1, label: 'disk I/O'},
+  thr: {get: p => p.Threads, dir: -1, label: 'threads'}, unit: {get: p => unitName(p.Unit), dir: 1, label: 'unit'},
+  cmd: {get: cmdOf, dir: 1, label: 'command'},
+};
+const CYCLE = ['cpu', 'mem', 'io', 'pid'];
+
+function th(key, label, cls = '') {
+  const on = S.sort.key === key || (S.sort.key === 'io' && (key === 'read' || key === 'write'));
+  return `<th class="sortable ${cls}${on ? ' sorted' : ''}" data-sort="${key}">${label}${on ? (S.sort.dir < 0 ? ' ↓' : ' ↑') : ''}</th>`;
+}
+
+function renderProcs() {
+  const f = S.filter.procs.trim().toLowerCase();
+  let list = S.snap.Procs;
+  if (f) list = list.filter(p => String(p.PID) === f || `${p.Name} ${p.User} ${unitName(p.Unit)} ${p.Cmdline}`.toLowerCase().includes(f));
+  const get = PSORT[S.sort.key].get, dir = S.sort.dir;
+  list = list.slice().sort((a, b) => {
+    const x = get(a), y = get(b);
+    return (typeof x === 'string' ? x.localeCompare(y) : x - y) * dir || a.PID - b.PID;
+  });
+  S.rows.procs = list.map(p => ({key: String(p.PID), pid: p.PID}));
+  if (!list.length) { setMain(empty(f ? `No process matches “${esc(f)}”. Press Esc to clear the filter.` : 'No processes.')); return; }
+  const sel = S.sel.procs;
+  const body = list.map(p => {
+    const u = unitName(p.Unit), cmd = cmdOf(p);
+    return `<tr data-key="${p.PID}"${String(p.PID) === sel ? ' class="sel"' : ''}>` +
+      `<td class="num">${p.PID}</td><td class="user">${esc(p.User)}</td>` +
+      `<td><span class="st st-${esc(p.State)}" title="${STATES[p.State] || ''}">${esc(p.State)}</span></td>` +
+      `<td class="num ${lvl(p.CPU, 50, 90)}">${f1(p.CPU)}</td><td class="num" title="${f1(p.MemPct)}% of memory">${bytes(p.RSS)}</td>` +
+      `<td class="num">${rate(p.ReadBps)}</td><td class="num">${rate(p.WriteBps)}</td><td class="num">${p.Threads}</td>` +
+      `<td class="unit" title="${esc(u)}">${esc(u)}</td><td class="cmd" title="${esc(cmd)}">${esc(cmd)}</td></tr>`;
+  }).join('');
+  setMain(`<table class="rows"><thead><tr>${th('pid', 'PID', 'num')}${th('user', 'User')}${th('state', 'State')}${th('cpu', 'CPU %', 'num')}` +
+    `${th('mem', 'Memory', 'num')}${th('read', 'Disk read', 'num')}${th('write', 'Disk write', 'num')}${th('thr', 'Threads', 'num')}` +
+    `${th('unit', 'Unit')}${th('cmd', 'Command')}</tr></thead><tbody>${body}</tbody></table>`);
+}
+
+/* ports */
+function renderPorts() {
+  const s = S.snap;
+  if (!s.ConnsCollected) { S.rows.ports = []; setMain(empty('Reading sockets…')); return; }
+  const f = S.filter.ports.trim().toLowerCase(), isNum = /^\d+$/.test(f);
+  let list = s.Conns.filter(c => S.all || listening(c));
+  if (f) {
+    list = list.filter(c => {
+      if (isNum) return String(c.LPort) === f || String(c.PID) === f || c.Remote.endsWith(':' + f);
+      const p = s.byPid.get(c.PID);
+      return `${c.Proto} ${c.LocalIP} ${c.State} ${c.Remote} ${p ? p.Name + ' ' + unitName(p.Unit) : ''}`.toLowerCase().includes(f);
+    });
+  }
+  list.sort((a, b) => a.LPort - b.LPort || a.Proto.localeCompare(b.Proto) || a.PID - b.PID);
+  const key = c => `${c.Proto}|${c.LocalIP}|${c.LPort}|${c.Remote}|${c.PID}`;
+  S.rows.ports = list.map(c => ({key: key(c), pid: c.PID}));
+  if (!list.length) {
+    setMain(empty(f ? `No socket matches “${esc(f)}”. Press Esc to clear the filter.` : 'No listening sockets.'));
+    return;
+  }
+  const sel = S.sel.ports;
+  const body = list.map(c => {
+    const p = s.byPid.get(c.PID), k = key(c);
+    const any = !c.LocalIP || c.LocalIP === '0.0.0.0' || c.LocalIP === '::';
+    const local = c.LocalIP.startsWith('127.') || c.LocalIP === '::1';
+    const addr = any ? `<span class="warn" title="Reachable on every interface">${esc(c.LocalIP || '*')}</span>`
+      : local ? `<span class="ok" title="Local connections only">${esc(c.LocalIP)}</span>` : esc(c.LocalIP);
+    const stCls = c.State === 'CLOSE_WAIT' ? 'crit' : c.State === 'LISTEN' ? 'ok' : '';
+    return `<tr data-key="${esc(k)}"${k === sel ? ' class="sel"' : ''}>` +
+      `<td class="num strong">${c.LPort}</td><td class="dim">${esc(c.Proto)}</td><td>${addr}</td><td class="${stCls}">${esc(c.State)}</td>` +
+      `<td class="strong">${p ? esc(p.Name) : '<span class="dim" title="Run whytop with sudo to see the owner">hidden</span>'}</td>` +
+      `<td class="num">${c.PID > 0 ? c.PID : '–'}</td><td class="unit">${p ? esc(unitName(p.Unit)) : ''}</td><td class="dim">${esc(c.Remote)}</td></tr>`;
+  }).join('');
+  setMain(`<table class="rows"><thead><tr><th class="num">Port</th><th>Protocol</th><th>Address</th><th>State</th><th>Process</th><th class="num">PID</th><th>Unit</th><th>Remote</th></tr></thead><tbody>${body}</tbody></table>`);
+}
+
+/* disks */
+function renderDisks() {
+  const s = S.snap;
+  const disks = s.Disks.map(d => `<tr${d.RIOPS + d.WIOPS < 0.05 ? ' class="idle"' : ''}>` +
+    `<td class="strong">${esc(d.Name)}${d.Label && d.Label !== d.Name ? ` <span class="dim">${esc(d.Label)}</span>` : ''}</td>` +
+    `<td class="num">${f1(d.RIOPS)}</td><td class="num">${f1(d.WIOPS)}</td><td class="num">${rate(d.RBps)}</td><td class="num">${rate(d.WBps)}</td>` +
+    `<td class="num ${lvl(d.AwaitMs, 20, 100)}">${f1(d.AwaitMs)}</td><td class="num ${lvl(d.Queue, 4, 16)}">${f1(d.Queue)}</td>` +
+    `<td class="num">${d.InFlight}</td><td class="num ${lvl(d.Util, 70, 90)}">${f1(d.Util)}%</td><td>${meter(d.Util, 70, 90)}</td></tr>`).join('');
+  const fs = s.FS.map(x => x.Stale
+    ? `<tr><td class="strong">${esc(x.Mount)}</td><td class="dim">${esc(x.Device)}</td><td class="dim">${esc(x.Type)}</td><td colspan="5" class="crit">Not responding. statfs is hanging, usually a dead network mount.</td></tr>`
+    : `<tr><td class="strong">${esc(x.Mount)}</td><td class="dim">${esc(x.Device)}</td><td class="dim">${esc(x.Type)}</td>` +
+      `<td class="num">${bytes(x.Total)}</td><td class="num">${bytes(x.Free)}</td><td class="num ${lvl(x.UsedPct, 80, 90)}">${f1(x.UsedPct)}%</td>` +
+      `<td>${meter(x.UsedPct, 80, 90)}</td><td class="num ${lvl(x.InodePct, 80, 90)}">${f1(x.InodePct)}%</td></tr>`).join('');
+  setMain(`<section class="block"><h2>Block devices</h2><p class="hint">To see which process is writing, open Processes and sort by disk write.</p>` +
+    `<table><thead><tr><th>Device</th><th class="num">Reads/s</th><th class="num">Writes/s</th><th class="num">Read</th><th class="num">Write</th>` +
+    `<th class="num">Await ms</th><th class="num">Queue</th><th class="num">In flight</th><th class="num">Utilization</th><th></th></tr></thead><tbody>${disks}</tbody></table></section>` +
+    `<section class="block"><h2>Filesystems</h2><table><thead><tr><th>Mount</th><th>Device</th><th>Type</th><th class="num">Size</th><th class="num">Free</th>` +
+    `<th class="num">Used</th><th></th><th class="num">Inodes used</th></tr></thead><tbody>${fs}</tbody></table></section>`);
+}
+
+/* network */
+function renderNet() {
+  const s = S.snap, t = s.TCP;
+  const stat = (label, value, cls = '') => `<div class="stat ${cls}"><div class="s-label">${label}</div><div class="s-value">${value}</div></div>`;
+  const tcp = t.Available ? `<div class="stats">${stat('Established', t.Established)}${stat('New outbound', f1(t.ActivePs) + '/s')}` +
+    `${stat('New inbound', f1(t.PassivePs) + '/s')}${stat('Retransmits', `${f1(t.RetransPs)}/s <span class="dim">${t.RetransPct.toFixed(2)}%</span>`, lvl(t.RetransPct, 1, 5))}` +
+    `${stat('Resets sent', f1(t.ResetPs) + '/s')}${stat('Receive errors', f1(t.InErrPs) + '/s', lvl(t.InErrPs, 0.1, 10))}</div>` : empty('TCP counters unavailable.');
+  const nics = s.NICs.map(n => `<tr${n.RxBps + n.TxBps < 1 ? ' class="idle"' : ''}><td class="strong">${esc(n.Name)}</td>` +
+    `<td class="num">${rate(n.RxBps)}</td><td class="num">${rate(n.TxBps)}</td><td class="num">${f1(n.RxPps)}</td><td class="num">${f1(n.TxPps)}</td>` +
+    `<td class="num ${n.ErrPs > 0 ? 'crit' : ''}">${f1(n.ErrPs)}</td><td class="num ${n.DropPs > 0 ? 'warn' : ''}">${f1(n.DropPs)}</td>` +
+    `<td class="num dim">${n.ErrTotal}</td><td class="num dim">${n.DropTotal}</td></tr>`).join('');
+  setMain(`<section class="block"><h2>TCP</h2>${tcp}</section><section class="block"><h2>Interfaces</h2><p class="hint">Busiest first.</p>` +
+    `<table><thead><tr><th>Interface</th><th class="num">Receive</th><th class="num">Send</th><th class="num">Packets in/s</th><th class="num">Packets out/s</th>` +
+    `<th class="num">Errors/s</th><th class="num">Drops/s</th><th class="num">Errors total</th><th class="num">Drops total</th></tr></thead><tbody>${nics}</tbody></table></section>`);
+}
+
+/* drawer */
+function tree(root) {
+  const kids = new Map();
+  for (const p of S.snap.Procs) {
+    if (p.PID === p.PPID) continue;
+    if (!kids.has(p.PPID)) kids.set(p.PPID, []);
+    kids.get(p.PPID).push(p);
+  }
+  const out = [];
+  const walk = (p, depth) => {
+    if (out.length >= 2000) return;
+    out.push([p, depth]);
+    (kids.get(p.PID) || []).sort((a, b) => a.PID - b.PID).forEach(c => walk(c, depth + 1));
+  };
+  walk(root, 0);
+  return out;
+}
+
+function openDrawer(pid) {
+  pid = Number(pid);
+  const changed = S.drawer !== pid;
+  S.drawer = pid;
+  S.sel.tree = String(pid);
+  if (changed) { S.detail = null; $('#d-log').textContent = 'Loading…'; $('#d-scroll').scrollTop = 0; }
+  document.body.classList.add('has-drawer');
+  loadDetail();
+  loadJournal();
+  render();
+  kick();
+}
+
+function closeDrawer() {
+  S.drawer = null;
+  S.detail = null;
+  document.body.classList.remove('has-drawer');
+  render();
+}
+
+async function loadDetail() {
+  const pid = S.drawer;
+  try {
+    const d = await api('/api/proc/' + pid);
+    if (S.drawer === pid) { S.detail = d; renderDrawer(); renderKeys(); }
+  } catch (e) {
+    if (S.drawer === pid && e.message !== 'Unauthorized') { S.detail = {RestartBlocked: e.message}; renderDrawer(); renderKeys(); }
+  }
+}
+
+async function loadJournal() {
+  const pid = S.drawer, el = $('#d-log');
+  if (pid === null) return;
+  try {
+    const t = await api('/api/journal/' + pid);
+    if (S.drawer === pid) { el.textContent = t; el.scrollTop = el.scrollHeight; }
+  } catch (e) {
+    if (S.drawer === pid) el.textContent = e.message;
+  }
+}
+
+function renderDrawer() {
+  const dr = $('#drawer');
+  if (S.drawer === null || !S.snap) { dr.hidden = true; return; }
+  dr.hidden = false;
+  const s = S.snap, p = s.byPid.get(S.drawer);
+  if (!p) {
+    S.rows.tree = [];
+    $('#d-title').innerHTML = `<div class="d-name">PID ${S.drawer}</div>`;
+    $('#d-main').innerHTML = empty('This process no longer exists. It exited, was killed, or its unit started it again under a new PID.');
+    $('#d-log-sec').hidden = true;
+    return;
+  }
+  $('#d-log-sec').hidden = false;
+  const x = S.detail || {}, us = x.UnitStatus, loaded = S.detail !== null;
+  const nodes = tree(p), pids = new Set(nodes.map(n => n[0].PID));
+  let cpu = 0, rss = 0, rd = 0, wr = 0;
+  for (const [q] of nodes) { cpu += q.CPU; rss += q.RSS; rd += q.ReadBps; wr += q.WriteBps; }
+  const kids = nodes.length > 1;
+  const withKids = v => kids ? ` <span class="dim">with children ${v}</span>` : '';
+  const parent = s.byPid.get(p.PPID);
+
+  $('#d-title').innerHTML = `<div class="d-name">${esc(p.Name)}</div><div class="d-sub">${spans(`PID ${p.PID}`, p.Unit && `<span class="unit">${esc(unitName(p.Unit))}</span>`)}</div>`;
+
+  const canRestart = loaded && !x.RestartBlocked;
+  const actions = `<div class="actions">
+    <button class="btn" data-act="term">Stop <kbd>x</kbd></button>
+    <button class="btn danger" data-act="kill">Force kill <kbd>X</kbd></button>
+    <button class="btn" data-act="restart" ${canRestart ? '' : 'disabled'} title="${esc(x.RestartBlocked || '')}">Restart unit <kbd>r</kbd></button>
+  </div>`;
+
+  let fds = '…';
+  if (loaded) {
+    const lim = Number(x.FDLimit);
+    fds = x.FDs < 0 ? '<span class="dim">Needs root</span>' : lim > 0 ? `${x.FDs} of ${lim} ${meter(x.FDs / lim * 100, 70, 90)}` : `${x.FDs}`;
+  }
+  let unit = p.Unit ? esc(unitName(p.Unit)) : '<span class="dim">None</span>';
+  if (us && us.ActiveState) unit += ` <span class="badge ${us.ActiveState === 'active' ? 'ok' : 'crit'}">${esc(us.ActiveState)}, ${esc(us.SubState)}</span>`;
+
+  const facts = [
+    ['State', `<span class="st st-${esc(p.State)}">${esc(p.State)}</span> ${STATES[p.State] || ''}`],
+    ['User', esc(p.User)],
+    ['Parent', parent ? `<a href="#" data-open="${p.PPID}">${esc(parent.Name)}</a> <span class="dim">${p.PPID}</span>` : (p.PPID || '–')],
+    ['Started', `${dur((Date.now() - Date.parse(p.Started)) / 1000)} ago <span class="dim">${new Date(p.Started).toLocaleString()}</span>`],
+    ['CPU', `${f1(p.CPU)}%` + withKids(f1(cpu) + '%')],
+    ['Memory', bytes(p.RSS) + withKids(bytes(rss))],
+    ['Disk read', rate(p.ReadBps) + withKids(rate(rd))],
+    ['Disk write', rate(p.WriteBps) + withKids(rate(wr))],
+    ['Threads', p.Threads],
+    ['Open files', fds],
+    ['OOM score', loaded && x.OOMScore ? `${esc(x.OOMScore)} <span class="dim">adjust ${esc(x.OOMAdj)}</span>` : '…'],
+    ['Unit', unit],
+  ];
+  if (us && us.ActiveState) {
+    facts.push(
+      ['Main PID', us.MainPID && us.MainPID !== '0' ? `<a href="#" data-open="${esc(us.MainPID)}">${esc(us.MainPID)}</a>` : '–'],
+      ['Restarts', esc(us.NRestarts || '0')],
+      ['Unit memory', /^\d+$/.test(us.MemoryCurrent || '') ? bytes(us.MemoryCurrent) : '–'],
+    );
+  }
+  const wide = [['Command', cmdOf(p)], ['Executable', x.Exe], ['Working directory', x.Cwd], ['Cgroup', x.Cgroup]];
+  const dl = `<dl class="facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}` +
+    wide.map(([k, v]) => `<div class="wide"><dt>${k}</dt><dd class="mono">${v ? esc(v) : '<span class="dim">–</span>'}</dd></div>`).join('') + '</dl>';
+
+  S.rows.tree = nodes.map(([q]) => ({key: String(q.PID), pid: q.PID}));
+  const tsel = S.sel.tree;
+  const trows = nodes.map(([q, depth]) => `<tr data-key="${q.PID}"${String(q.PID) === tsel ? ' class="sel"' : ''}>` +
+    `<td class="num">${q.PID}</td><td><span class="st st-${esc(q.State)}">${esc(q.State)}</span></td>` +
+    `<td class="num ${lvl(q.CPU, 50, 90)}">${f1(q.CPU)}</td><td class="num">${bytes(q.RSS)}</td>` +
+    `<td class="num">${rate(q.ReadBps)}</td><td class="num">${rate(q.WriteBps)}</td>` +
+    `<td class="cmd" style="padding-left:${10 + depth * 16}px" title="${esc(cmdOf(q))}">${depth ? '<span class="branch">└</span> ' : ''}${esc(cmdOf(q))}</td></tr>`).join('');
+
+  let socks;
+  if (!s.ConnsCollected) socks = empty('Reading sockets…');
+  else {
+    const list = s.Conns.filter(c => pids.has(c.PID)).sort((a, b) => (listening(b) - listening(a)) || a.LPort - b.LPort).slice(0, 300);
+    socks = list.length
+      ? `<table><thead><tr><th class="num">Port</th><th>Protocol</th><th>Address</th><th>State</th><th class="num">PID</th><th>Remote</th></tr></thead><tbody>` +
+        list.map(c => `<tr><td class="num strong">${c.LPort}</td><td class="dim">${esc(c.Proto)}</td><td>${esc(c.LocalIP)}</td>` +
+          `<td class="${c.State === 'LISTEN' ? 'ok' : c.State === 'CLOSE_WAIT' ? 'crit' : ''}">${esc(c.State)}</td><td class="num">${c.PID}</td><td class="dim">${esc(c.Remote)}</td></tr>`).join('') +
+        '</tbody></table>'
+      : empty(s.Root ? 'No network sockets.' : 'No sockets visible. Run whytop with sudo to see sockets of other users.');
+  }
+
+  $('#d-main').innerHTML = actions + dl +
+    `<section class="d-sec"><div class="d-sec-head"><h3>Process tree<span class="dim">${nodes.length}</span></h3></div>` +
+    `<table class="rows tree"><thead><tr><th class="num">PID</th><th>State</th><th class="num">CPU %</th><th class="num">Memory</th><th class="num">Disk read</th><th class="num">Disk write</th><th>Command</th></tr></thead><tbody>${trows}</tbody></table></section>` +
+    `<section class="d-sec"><div class="d-sec-head"><h3>Sockets</h3></div>${socks}</section>`;
+}
+
+/* modal + toast */
+function confirmBox({title, body, ok, danger, run}) {
+  S.modal = run;
+  $('#m-title').textContent = title;
+  $('#m-body').textContent = body;
+  const b = $('#m-ok');
+  b.textContent = ok;
+  b.className = 'btn ' + (danger ? 'solid' : 'primary');
+  $('#modal').hidden = false;
+  b.focus();
+  renderKeys();
+}
+function closeModal() { S.modal = null; $('#modal').hidden = true; renderKeys(); }
+function runModal() { const fn = S.modal; closeModal(); if (fn) fn(); }
+
+function toast(msg, kind = '') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + kind;
+  t.textContent = msg;
+  $('#toasts').append(t);
+  setTimeout(() => t.remove(), 4500);
+}
+
+/* actions */
+function signal(sig) {
+  const p = S.snap && S.snap.byPid.get(S.drawer);
+  if (!p) return;
+  const kill = sig === 'KILL';
+  confirmBox({
+    title: kill ? `Force kill ${p.Name}?` : `Stop ${p.Name}?`,
+    body: kill ? `SIGKILL ends PID ${p.PID} immediately. It gets no chance to save state or close connections.`
+      : `SIGTERM asks PID ${p.PID} to shut down cleanly. A supervisor such as systemd may start it again.`,
+    ok: kill ? 'Force kill' : 'Stop process', danger: true,
+    run: async () => {
+      try {
+        await api('/api/signal', {method: 'POST', body: JSON.stringify({pid: p.PID, signal: sig})});
+        toast(`${kill ? 'SIGKILL' : 'SIGTERM'} sent to ${p.Name} (${p.PID})`, 'ok');
+        kick();
+      } catch (e) { toast(e.message, 'crit'); }
+    },
+  });
+}
+
+function restart() {
+  const p = S.snap && S.snap.byPid.get(S.drawer), x = S.detail;
+  if (!p || !x) return;
+  if (x.RestartBlocked) { toast(x.RestartBlocked, 'warn'); return; }
+  const u = unitName(p.Unit);
+  confirmBox({
+    title: `Restart ${u}?`,
+    body: `Runs systemctl restart ${u}. Every process in the unit stops and starts again.`,
+    ok: 'Restart unit', danger: false,
+    run: async () => {
+      toast(`Restarting ${u}…`);
+      try {
+        const r = await api('/api/restart', {method: 'POST', body: JSON.stringify({pid: p.PID})});
+        toast(`Restarted ${u}`, 'ok');
+        if (r.mainPID > 0) openDrawer(r.mainPID); else kick();
+      } catch (e) { toast(e.message, 'crit'); }
+    },
+  });
+}
+
+/* navigation */
+const ctx = () => S.drawer !== null ? 'tree' : S.tab;
+const isList = () => S.tab === 'procs' || S.tab === 'ports';
+
+function setTab(t) {
+  S.tab = t;
+  $('#main').scrollTop = 0;
+  if (t === 'ports') kick();
+  render();
+}
+function setFilter(v) {
+  S.filter[S.tab] = v;
+  $('#filter').value = v;
+  renderMain();
+}
+function sortBy(key) {
+  S.sort = S.sort.key === key ? {key, dir: -S.sort.dir} : {key, dir: PSORT[key].dir};
+  renderMain();
+  renderKeys();
+}
+function cycleSort() {
+  const i = CYCLE.indexOf(S.sort.key);
+  sortBy(CYCLE[(i + 1) % CYCLE.length]);
+}
+function togglePause() {
+  S.paused = !S.paused;
+  live('ok');
+  renderKeys();
+  if (!S.paused) kick();
+}
+
+function highlight(c, scroll) {
+  const root = c === 'tree' ? $('#d-main .tree') : $('#main');
+  if (!root) return;
+  root.querySelectorAll('tr.sel').forEach(r => r.classList.remove('sel'));
+  const tr = S.sel[c] && root.querySelector(`tr[data-key="${CSS.escape(S.sel[c])}"]`);
+  if (tr) { tr.classList.add('sel'); if (scroll) tr.scrollIntoView({block: 'nearest'}); }
+}
+function move(d) {
+  const c = ctx(), rows = S.rows[c];
+  if (!rows || !rows.length) return;
+  let i = rows.findIndex(r => r.key === S.sel[c]);
+  i = i < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, i + d));
+  S.sel[c] = rows[i].key;
+  highlight(c, true);
+}
+function openSel() {
+  const c = ctx(), r = (S.rows[c] || []).find(r => r.key === S.sel[c]);
+  if (!r) { move(0); return; }
+  if (c === 'tree') { if (r.pid !== S.drawer) openDrawer(r.pid); return; }
+  if (r.pid > 0) openDrawer(r.pid);
+  else toast('The owner of this socket is hidden. Run whytop with sudo.', 'warn');
+}
+
+function deepLink() {
+  const d = S.deep;
+  if (!d) return;
+  if (d.pid) {
+    S.deep = null;
+    if (S.snap.byPid.has(d.pid)) openDrawer(d.pid); else toast(`No process with PID ${d.pid}`, 'warn');
+    return;
+  }
+  if (!S.snap.ConnsCollected) return;
+  S.deep = null;
+  const c = S.snap.Conns.find(c => c.LPort === d.port && listening(c) && c.PID > 0);
+  if (c) { openDrawer(c.PID); return; }
+  setTab('ports');
+  setFilter(String(d.port));
+  toast(`Nothing visible is listening on port ${d.port}`, 'warn');
+}
+
+/* keys: the footer only lists keys that work in the current context */
+function renderKeys() {
+  let k;
+  if (S.modal) k = [['Enter', 'confirm'], ['Esc', 'cancel']];
+  else if (document.activeElement === $('#filter')) k = [['Enter', 'go to results'], ['Esc', 'clear filter']];
+  else if (S.drawer !== null) {
+    k = [['↑ ↓', 'select in tree'], ['Enter', 'open selected'], ['x', 'stop'], ['X', 'force kill']];
+    if (S.detail && !S.detail.RestartBlocked) k.push(['r', 'restart unit']);
+    k.push(['l', 'reload journal'], ['Esc', 'close']);
+  } else {
+    k = [['1–4', 'switch tab']];
+    if (S.tab === 'procs') k.push(['↑ ↓', 'select'], ['Enter', 'open'], ['/', 'filter'], ['s', `sort by ${PSORT[S.sort.key].label}`]);
+    if (S.tab === 'ports') k.push(['↑ ↓', 'select'], ['Enter', 'open'], ['/', 'filter'], ['a', S.all ? 'listening only' : 'all sockets']);
+    if (isList() && S.filter[S.tab]) k.push(['Esc', 'clear filter']);
+    k.push(['p', S.paused ? 'resume' : 'pause']);
+  }
+  $('#keys').innerHTML = k.map(([key, label]) => `<span><kbd>${esc(key)}</kbd>${esc(label)}</span>`).join('');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const key = e.key;
+
+  if (S.modal) {
+    if (key === 'Escape') closeModal();
+    else if (key === 'Enter') runModal();
+    else return;
+    e.preventDefault();
+    return;
+  }
+
+  if (e.target === $('#filter')) {
+    if (key === 'Escape') { setFilter(''); e.target.blur(); }
+    else if (key === 'Enter' || key === 'ArrowDown') { e.target.blur(); move(0); }
+    else return;
+    e.preventDefault();
+    return;
+  }
+
+  if (S.drawer !== null) {
+    switch (key) {
+      case 'Escape': closeDrawer(); break;
+      case 'ArrowDown': case 'j': move(1); break;
+      case 'ArrowUp': case 'k': move(-1); break;
+      case 'Enter': openSel(); break;
+      case 'x': signal('TERM'); break;
+      case 'X': signal('KILL'); break;
+      case 'r': restart(); break;
+      case 'l': loadJournal(); break;
+      default: return;
+    }
+    e.preventDefault();
+    return;
+  }
+
+  if (TAB_KEYS[key]) { setTab(TAB_KEYS[key]); e.preventDefault(); return; }
+  switch (key) {
+    case 'p': togglePause(); break;
+    case '/': if (!isList()) return; $('#filter').focus(); break;
+    case 'Escape': if (!isList() || !S.filter[S.tab]) return; setFilter(''); renderKeys(); break;
+    case 's': if (S.tab !== 'procs') return; cycleSort(); break;
+    case 'a': if (S.tab !== 'ports') return; S.all = !S.all; render(); break;
+    case 'ArrowDown': case 'j': if (!isList()) return; move(1); break;
+    case 'ArrowUp': case 'k': if (!isList()) return; move(-1); break;
+    case 'Enter': if (!isList()) return; openSel(); break;
+    default: return;
+  }
+  e.preventDefault();
+});
+
+/* mouse */
+document.querySelector('.tabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tab]');
+  if (b) setTab(b.dataset.tab);
+});
+$('#all-toggle').addEventListener('click', () => { S.all = !S.all; render(); });
+$('#filter').addEventListener('input', e => { S.filter[S.tab] = e.target.value; renderMain(); renderKeys(); });
+$('#filter').addEventListener('focus', renderKeys);
+$('#filter').addEventListener('blur', renderKeys);
+$('#main').addEventListener('click', e => {
+  const h = e.target.closest('th[data-sort]');
+  if (h) { sortBy(h.dataset.sort); return; }
+  const tr = e.target.closest('tbody tr[data-key]');
+  if (!tr || !isList()) return;
+  S.sel[S.tab] = tr.dataset.key;
+  highlight(S.tab);
+  openSel();
+});
+$('#drawer').addEventListener('click', e => {
+  const a = e.target.closest('[data-open]');
+  if (a) { e.preventDefault(); openDrawer(a.dataset.open); return; }
+  const b = e.target.closest('button[data-act]');
+  if (b) { if (!b.disabled) ({term: () => signal('TERM'), kill: () => signal('KILL'), restart})[b.dataset.act](); return; }
+  const tr = e.target.closest('.tree tbody tr[data-key]');
+  if (tr) { S.sel.tree = tr.dataset.key; highlight('tree'); openSel(); }
+});
+$('#d-close').addEventListener('click', closeDrawer);
+$('#d-log-reload').addEventListener('click', loadJournal);
+$('#m-ok').addEventListener('click', runModal);
+$('#m-cancel').addEventListener('click', closeModal);
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+
+/* start */
+const hp = new URLSearchParams(location.hash.slice(1));
+if (Number(hp.get('pid')) > 0) S.deep = {pid: Number(hp.get('pid'))};
+else if (Number(hp.get('port')) > 0) S.deep = {port: Number(hp.get('port'))};
+renderKeys();
+tick();
+})();
+</script>
+</body>
+</html>
