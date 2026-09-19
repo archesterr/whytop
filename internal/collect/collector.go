@@ -32,16 +32,23 @@ type Collector struct {
 	prevDisk map[string]disk.IOCountersStat
 	prevNIC  map[string]psnet.IOCountersStat
 	prevTCP  map[string]int64
-	users    map[uint32]string
+	users    map[uint32]userEnt
 	hung     map[string]bool
 }
+
+type userEnt struct {
+	name string
+	at   time.Time
+}
+
+const userCacheTTL = 10 * time.Minute
 
 func New() *Collector {
 	c := &Collector{
 		prevProc: map[procKey]procPrev{},
 		prevDisk: map[string]disk.IOCountersStat{},
 		prevNIC:  map[string]psnet.IOCountersStat{},
-		users:    map[uint32]string{},
+		users:    map[uint32]userEnt{},
 		hung:     map[string]bool{},
 	}
 	if bt, err := host.BootTime(); err == nil {
