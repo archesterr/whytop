@@ -219,7 +219,7 @@ func (m *model) openSelected() (tea.Model, tea.Cmd) {
 	if pid <= 0 {
 		return m.showToast("The owner of this socket is hidden. Run whytop with sudo.", false)
 	}
-	m.detail = &detailState{pid: pid}
+	m.detail = &detailState{pid: pid, follow: true}
 	return *m, tea.Batch(m.loadExtraCmd(pid), m.loadJournalCmd(pid))
 }
 
@@ -244,7 +244,7 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.detail.treeSel < len(nodes) {
 			pid := nodes[m.detail.treeSel].PID
 			if pid != m.detail.pid {
-				m.detail = &detailState{pid: pid}
+				m.detail = &detailState{pid: pid, follow: true}
 				return m, tea.Batch(m.loadExtraCmd(pid), m.loadJournalCmd(pid))
 			}
 		}
@@ -253,6 +253,11 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// navigation here, so the letter is free for the mnemonic it
 		// actually matches instead of an arbitrary one.
 		return m, m.loadJournalCmd(m.detail.pid)
+	case "f":
+		m.detail.follow = !m.detail.follow
+		if m.detail.follow {
+			return m, m.loadJournalCmd(m.detail.pid)
+		}
 	case "x", "X":
 		p, ok := m.procByPID(m.detail.pid)
 		if !ok {

@@ -11,6 +11,7 @@ var (
 	colPanel  = lipgloss.Color("#212733")
 	colLine   = lipgloss.Color("#313a4a")
 	colHdrBg  = lipgloss.Color("#2a3242")
+	colSecBg  = lipgloss.Color("#36425c") // section bars sit above column headers
 	colSelBg  = lipgloss.Color("#39507a")
 	colText   = lipgloss.Color("#d9dee7")
 	colMuted  = lipgloss.Color("#8b94a5")
@@ -42,6 +43,9 @@ var (
 	stHdrBar    = lipgloss.NewStyle().Foreground(colFaint).Background(colHdrBg)
 	stHdrCell   = lipgloss.NewStyle().Foreground(colMuted).Bold(true).Background(colHdrBg)
 	stHdrCellOn = lipgloss.NewStyle().Foreground(colAccent).Bold(true).Background(colHdrBg)
+	// A section bar outranks a column-header bar, so it's the brighter of
+	// the two: section > columns > rows, readable at a glance.
+	stSection   = lipgloss.NewStyle().Foreground(colText).Bold(true).Background(colSecBg)
 	stTabOn     = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colAccent)
 	stTabOnCnt  = lipgloss.NewStyle().Foreground(colBg).Background(colAccent)
 	stTabOff    = lipgloss.NewStyle().Foreground(colMuted)
@@ -77,6 +81,31 @@ func joinColsWith(sep string, cells ...string) string {
 
 func joinCols(cells ...string) string {
 	return joinColsSel(false, cells...)
+}
+
+// hdrCell renders one column header: centred over the narrow value columns,
+// left-aligned over wide text columns.
+//
+// Centring everything is what stranded "COMMAND" and "TARGET" in the middle
+// of a 90-column field with a void on either side — a header belongs over the
+// start of the data it names, and wide columns hold left-aligned text.
+func hdrCell(title string, w int, style lipgloss.Style) string {
+	if w >= 24 {
+		return cell(title, w, false, style)
+	}
+	return centerCell(title, w, style)
+}
+
+// sectionBar titles a block with a full-width bar. It's the line that
+// separates one section from the next: without it the detail view is one long
+// column of text with bare labels dropped into it, and nothing tells you
+// where the process tree ends and the open files begin.
+func sectionBar(w int, title string) string {
+	bar := stSection.Render(" " + title + " ")
+	if n := max0(w - visLen(bar)); n > 0 {
+		bar += stSection.Render(strings.Repeat(" ", n))
+	}
+	return bar
 }
 
 // tableHeader draws a column header as one solid bar across the table, the

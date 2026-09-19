@@ -54,6 +54,11 @@ type detailState struct {
 	loaded         bool
 	treeSel        int
 	journal        string
+	// follow re-reads the journal on every refresh tick, which is what
+	// `journalctl -u <unit> -f` gives you at a shell. It's on by default:
+	// you open a process's panel to watch what it's doing, and a log that
+	// silently stopped updating is worse than no log at all.
+	follow bool
 }
 
 const toastTTL = 3 * time.Second
@@ -187,6 +192,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.detail != nil {
 			cmds = append(cmds, m.loadExtraCmd(m.detail.pid))
+			if m.detail.follow {
+				cmds = append(cmds, m.loadJournalCmd(m.detail.pid))
+			}
 		}
 		wait := m.opt.Interval
 		if wait <= 0 {
@@ -234,7 +242,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.collectCmd(0))
 		}
 		if msg.openPID > 0 {
-			m.detail = &detailState{pid: msg.openPID}
+			m.detail = &detailState{pid: msg.openPID, follow: true}
 			cmds = append(cmds, m.loadExtraCmd(msg.openPID), m.loadJournalCmd(msg.openPID))
 		}
 		return m, tea.Batch(cmds...)
@@ -280,7 +288,7 @@ func (m *model) resolveDeepLink() tea.Cmd {
 			_, cmd := m.showToast(fmt.Sprintf("No process with PID %d", pid), false)
 			return cmd
 		}
-		m.detail = &detailState{pid: pid}
+		m.detail = &detailState{pid: pid, follow: true}
 		return tea.Batch(m.loadExtraCmd(pid), m.loadJournalCmd(pid))
 
 	case m.deepPort > 0:
@@ -292,7 +300,7 @@ func (m *model) resolveDeepLink() tea.Cmd {
 		}
 		for _, c := range m.snap.Conns {
 			if int(c.LPort) == port && c.Listening() && c.PID > 0 {
-				m.detail = &detailState{pid: c.PID}
+				m.detail = &detailState{pid: c.PID, follow: true}
 				return tea.Batch(m.loadExtraCmd(c.PID), m.loadJournalCmd(c.PID))
 			}
 		}

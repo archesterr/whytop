@@ -79,22 +79,28 @@ func (m model) renderDetail(w, h int) string {
 	if d.loaded && d.extra.OOMScore != "" {
 		facts = append(facts, [2]string{"OOM score", d.extra.OOMScore + " (adjust " + d.extra.OOMAdj + ")"})
 	}
-	colW := (w - sepW) / 2
-	if colW < 24 {
-		colW = 24
+	// Three columns where there's room, two otherwise. A fact is a short
+	// label and a short value, so two columns on a wide terminal left half
+	// the row empty and pushed the panel taller than it needed to be.
+	nCol := 2
+	if w >= 110 {
+		nCol = 3
 	}
-	for i := 0; i < len(facts); i += 2 {
-		left := stMuted.Render(pad2(facts[i][0], 12)) + " " + facts[i][1]
-		line := left
-		if i+1 < len(facts) {
-			right := stMuted.Render(pad2(facts[i+1][0], 12)) + " " + facts[i+1][1]
-			// pad(), not cell(): left already carries other cells' ANSI
-			// codes (the colored state pill, "with children" annotations),
+	colW := (w - (nCol-1)*sepW) / nCol
+	if colW < 24 {
+		colW, nCol = w, 1
+	}
+	for i := 0; i < len(facts); i += nCol {
+		var cells []string
+		for j := i; j < i+nCol && j < len(facts); j++ {
+			// pad(), not cell(): the value already carries other styles'
+			// ANSI codes (the coloured state, "with children" annotations),
 			// and re-styling text that already contains styling corrupts
 			// the escape sequences instead of composing with them.
-			line = pad(left, colW, false) + colSep + right
+			fact := stMuted.Render(pad2(facts[j][0], 11)) + " " + facts[j][1]
+			cells = append(cells, pad(truncateANSI(fact, colW), colW, false))
 		}
-		b.WriteString(line + "\n")
+		b.WriteString(joinColsWith(colSep, cells...) + "\n")
 	}
 	b.WriteString(stMuted.Render("Command  ") + truncate(cmdOf(p), w-9) + "\n")
 
@@ -107,25 +113,29 @@ func (m model) renderDetail(w, h int) string {
 	}
 	b.WriteString(stFaint.Render(restartLine) + "\n")
 
-	// Five units: tree gets two (it's usually what you came here for), the
-	// other three sections one each.
+	// Five shares of whatever's left: the tree takes two (it's usually what
+	// you came here for), the other three sections one each.
+	//
+	// The shares are divided, never floored up: flooring each section at
+	// three rows made them add up to more than the panel had on a 26-row
+	// terminal, and the overflow came off the bottom — so the JOURNAL bar
+	// rendered with nothing at all underneath it.
 	bottom := max0(h - 14)
-	unit := bottom / 5
-	if unit < 3 {
-		unit = 3
-	}
-	treeH := 2 * unit
-	sockH := unit
-	filesH := unit
+	treeH := bottom * 2 / 5
+	sockH := bottom / 5
+	filesH := bottom / 5
 	logH := max0(bottom - treeH - sockH - filesH)
-	if logH < 3 {
-		logH = 3
+	// Two rows is the floor that still shows a column header and one row.
+	for _, v := range []*int{&treeH, &sockH, &filesH, &logH} {
+		if *v < 2 {
+			*v = 2
+		}
 	}
 
-	b.WriteString(stHeader.Render(fmt.Sprintf("PROCESS TREE (%d)", len(nodes))) + "\n")
+	b.WriteString(sectionBar(w, fmt.Sprintf("PROCESS TREE (%d)", len(nodes))) + "\n")
 	b.WriteString(m.renderTree(nodes, w, treeH) + "\n")
 
-	b.WriteString(stHeader.Render("SOCKETS") + "\n")
+	b.WriteString(sectionBar(w, "SOCKETS") + "\n")
 	b.WriteString(m.renderSockets(nodes, w, sockH) + "\n")
 
 	// x/X below stop/force-kill this same process — the one holding every
@@ -134,10 +144,16 @@ func (m model) renderDetail(w, h int) string {
 	if d.loaded && d.extra.FDs >= 0 {
 		filesHeader = fmt.Sprintf("OPEN FILES (%d)", d.extra.FDs)
 	}
-	b.WriteString(stHeader.Render(filesHeader) + "\n")
+	b.WriteString(sectionBar(w, filesHeader) + "\n")
 	b.WriteString(m.renderOpenFiles(w, filesH) + "\n")
 
-	b.WriteString(stHeader.Render("JOURNAL") + "\n")
+	journalTitle := "JOURNAL"
+	if d.follow {
+		journalTitle += "  ● live"
+	} else {
+		journalTitle += "  paused (f)"
+	}
+	b.WriteString(sectionBar(w, journalTitle) + "\n")
 	b.WriteString(renderJournal(d.journal, w, logH))
 
 	return b.String()
@@ -177,8 +193,8 @@ func (m model) renderSockets(nodes []collect.Proc, w, h int) string {
 		return conns[i].LPort < conns[j].LPort
 	})
 	remoteW := max0(w - (6 + 6 + 12) - 3*sepW)
-	header := joinCols(centerCell("PORT", 6, stHeader), centerCell("PROTO", 6, stHeader),
-		centerCell("STATE", 12, stHeader), centerCell("REMOTE", remoteW, stHeader))
+	header := tableHeader(w, hdrCell("PORT", 6, stHdrCell), hdrCell("PROTO", 6, stHdrCell),
+		hdrCell("STATE", 12, stHdrCell), hdrCell("REMOTE", remoteW, stHdrCell))
 	lines := capRows(conns, h-1, func(c collect.Conn) string {
 		stStyle := stPlain
 		if c.State == "LISTEN" {
@@ -220,7 +236,7 @@ func (m model) renderOpenFiles(w, h int) string {
 	if targetW < 10 {
 		targetW = 10
 	}
-	header := joinCols(centerCell("FD", fdW, stHeader), centerCell("KIND", kindW, stHeader), centerCell("TARGET", targetW, stHeader))
+	header := tableHeader(w, hdrCell("FD", fdW, stHdrCell), hdrCell("KIND", kindW, stHdrCell), hdrCell("TARGET", targetW, stHdrCell))
 	lines := capRows(files, h-1, func(f collect.OpenFile) string {
 		style := stMuted
 		if f.Kind == "deleted" {
@@ -274,8 +290,8 @@ func (m model) renderTree(nodes []collect.Proc, w, h int) string {
 	if cmdW < 10 {
 		cmdW = 10
 	}
-	header := joinCols(centerCell("PID", 6, stHeader), centerCell("ST", 3, stHeader), centerCell("CPU%", 6, stHeader),
-		centerCell("MEM", 9, stHeader), centerCell("I/O", 9, stHeader), centerCell("COMMAND", cmdW, stHeader))
+	header := tableHeader(w, hdrCell("PID", 6, stHdrCell), hdrCell("ST", 3, stHdrCell), hdrCell("CPU%", 6, stHdrCell),
+		hdrCell("MEM", 9, stHdrCell), hdrCell("I/O", 9, stHdrCell), hdrCell("COMMAND", cmdW, stHdrCell))
 	var lines []string
 	lines = append(lines, header)
 	for i, p := range nodes {
