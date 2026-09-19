@@ -79,7 +79,7 @@ func (m model) renderDetail(w, h int) string {
 	if d.loaded && d.extra.OOMScore != "" {
 		facts = append(facts, [2]string{"OOM score", d.extra.OOMScore + " (adjust " + d.extra.OOMAdj + ")"})
 	}
-	colW := w / 2
+	colW := (w - sepW) / 2
 	if colW < 24 {
 		colW = 24
 	}
@@ -92,7 +92,7 @@ func (m model) renderDetail(w, h int) string {
 			// codes (the colored state pill, "with children" annotations),
 			// and re-styling text that already contains styling corrupts
 			// the escape sequences instead of composing with them.
-			line = pad(left, colW, false) + right
+			line = pad(left, colW, false) + colSep + right
 		}
 		b.WriteString(line + "\n")
 	}
@@ -166,8 +166,9 @@ func (m model) renderSockets(nodes []collect.Proc, w, h int) string {
 		}
 		return conns[i].LPort < conns[j].LPort
 	})
-	header := cell("PORT", 6, true, stHeader) + " " + cell("PROTO", 6, false, stHeader) + " " +
-		cell("STATE", 12, false, stHeader) + " " + cell("REMOTE", w-28, false, stHeader)
+	remoteW := max0(w - (6 + 6 + 12) - 3*sepW)
+	header := joinCols(cell("PORT", 6, true, stHeader), cell("PROTO", 6, false, stHeader),
+		cell("STATE", 12, false, stHeader), cell("REMOTE", remoteW, false, stHeader))
 	lines := capRows(conns, h-1, func(c collect.Conn) string {
 		stStyle := stPlain
 		if c.State == "LISTEN" {
@@ -175,8 +176,8 @@ func (m model) renderSockets(nodes []collect.Proc, w, h int) string {
 		} else if c.State == "CLOSE_WAIT" {
 			stStyle = stCrit
 		}
-		return cell(strconv.Itoa(int(c.LPort)), 6, true, stPlain.Bold(true)) + " " + cell(c.Proto, 6, false, stMuted) + " " +
-			cell(c.State, 12, false, stStyle) + " " + cell(c.Remote, max0(w-28), false, stMuted)
+		return joinCols(cell(strconv.Itoa(int(c.LPort)), 6, true, stPlain.Bold(true)), cell(c.Proto, 6, false, stMuted),
+			cell(c.State, 12, false, stStyle), cell(c.Remote, remoteW, false, stMuted))
 	})
 	return header + "\n" + strings.Join(lines, "\n")
 }
@@ -218,12 +219,12 @@ func (m model) renderTree(nodes []collect.Proc, w, h int) string {
 			depth[i] = depth[pi] + 1
 		}
 	}
-	cmdW := w - (6 + 1 + 3 + 1 + 6 + 1 + 9 + 1 + 9 + 1) - 4
+	cmdW := w - (6 + 3 + 6 + 9 + 9) - 5*sepW - 4
 	if cmdW < 10 {
 		cmdW = 10
 	}
-	header := cell("PID", 6, true, stHeader) + " " + cell("ST", 3, false, stHeader) + " " + cell("CPU%", 6, true, stHeader) + " " +
-		cell("MEM", 9, true, stHeader) + " " + cell("I/O", 9, true, stHeader) + " " + cell("COMMAND", cmdW, false, stHeader)
+	header := joinCols(cell("PID", 6, true, stHeader), cell("ST", 3, false, stHeader), cell("CPU%", 6, true, stHeader),
+		cell("MEM", 9, true, stHeader), cell("I/O", 9, true, stHeader), cell("COMMAND", cmdW, false, stHeader))
 	var lines []string
 	lines = append(lines, header)
 	for i, p := range nodes {
@@ -238,9 +239,10 @@ func (m model) renderTree(nodes []collect.Proc, w, h int) string {
 		}
 		name := truncate(indent+branch+cmdOf(p), cmdW)
 		sel := i == m.detail.treeSel
-		row := cell(strconv.Itoa(int(p.PID)), 6, true, withBG(stPlain, sel)) + " " + cell(p.State, 3, false, withBG(stateStyle(p.State), sel)) + " " +
-			cell(f1(p.CPU), 6, true, withBG(lvl(p.CPU, 50, 90), sel)) + " " + cell(bytesFmt(float64(p.RSS)), 9, true, withBG(stPlain, sel)) + " " +
-			ioCell(p.IOHidden, p.ReadBps+p.WriteBps, 9, sel) + " " + cell(name, cmdW, false, withBG(stMuted, sel))
+		row := joinColsSel(sel,
+			cell(strconv.Itoa(int(p.PID)), 6, true, withBG(stPlain, sel)), cell(p.State, 3, false, withBG(stateStyle(p.State), sel)),
+			cell(f1(p.CPU), 6, true, withBG(lvl(p.CPU, 50, 90), sel)), cell(bytesFmt(float64(p.RSS)), 9, true, withBG(stPlain, sel)),
+			ioCell(p.IOHidden, p.ReadBps+p.WriteBps, 9, sel), cell(name, cmdW, false, withBG(stMuted, sel)))
 		lines = append(lines, row)
 	}
 	return strings.Join(lines, "\n")

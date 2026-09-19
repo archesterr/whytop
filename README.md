@@ -25,7 +25,7 @@ sudo whytop -pid 1234      # opens a PID
 sudo whytop -port 443      # opens the process listening on 443
 ```
 
-whytop opens no socket and needs no token — it's a local program that reads `/proc` and signals processes directly, nothing more. Root is needed to see other users' sockets, per-process disk I/O and open files.
+whytop opens no socket and needs no token — it's a local program that reads `/proc` and signals processes directly, nothing more. Root is needed to see other users' sockets, per-process disk I/O and open files. The version running is always shown in the top-left corner (`sudo whytop -version` prints it and exits, for scripting).
 
 ## What you get
 

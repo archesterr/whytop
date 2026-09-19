@@ -39,14 +39,30 @@ func (m model) renderProcs(w, h int) string {
 		return stMuted.Render(msg)
 	}
 
+	// The Unit column is the first to go on a narrow terminal — matching the
+	// original web UI's own responsive behavior (it hid the same column
+	// below 980px) rather than squeezing Command down to an unreadable
+	// sliver just to keep every column present.
 	unitW := 16
-	cmdW := w - (6 + 1 + 11 + 1 + 3 + 1 + 6 + 1 + 9 + 1 + 9 + 1 + 9 + 1 + unitW + 1)
+	noUnitFixed, noUnitGaps := 6+11+3+6+9+9+9, 7
+	withUnitFixed, withUnitGaps := noUnitFixed+unitW, 8
+	cmdWWithUnit := w - withUnitFixed - withUnitGaps*sepW
+	showUnit := cmdWWithUnit >= 18
+	cmdW := cmdWWithUnit
+	if !showUnit {
+		cmdW = w - noUnitFixed - noUnitGaps*sepW
+	}
 	if cmdW < 12 {
 		cmdW = 12
 	}
-	header := cell("PID", 6, true, stHeader) + " " + cell("USER", 11, false, stHeader) + " " + cell("ST", 3, false, stHeader) + " " +
-		cell("CPU%", 6, true, stHeader) + " " + cell("MEM", 9, true, stHeader) + " " + cell("READ", 9, true, stHeader) + " " +
-		cell("WRITE", 9, true, stHeader) + " " + cell("UNIT", unitW, false, stHeader) + " " + cell("COMMAND", cmdW, false, stHeader)
+
+	headerCells := []string{cell("PID", 6, true, stHeader), cell("USER", 11, false, stHeader), cell("ST", 3, false, stHeader),
+		cell("CPU%", 6, true, stHeader), cell("MEM", 9, true, stHeader), cell("READ", 9, true, stHeader), cell("WRITE", 9, true, stHeader)}
+	if showUnit {
+		headerCells = append(headerCells, cell("UNIT", unitW, false, stHeader))
+	}
+	headerCells = append(headerCells, cell("COMMAND", cmdW, false, stHeader))
+	header := joinCols(headerCells...)
 
 	var lines []string
 	lines = append(lines, header)
@@ -57,16 +73,20 @@ func (m model) renderProcs(w, h int) string {
 			break
 		}
 		sel := strconv.Itoa(int(p.PID)) == selKey
-		row := cell(strconv.Itoa(int(p.PID)), 6, true, withBG(stPlain, sel)) + " " +
-			cell(p.User, 11, false, withBG(stMuted, sel)) + " " +
-			cell(p.State, 3, false, withBG(stateStyle(p.State), sel)) + " " +
-			cell(f1(p.CPU), 6, true, withBG(lvl(p.CPU, 50, 90), sel)) + " " +
-			cell(bytesFmt(float64(p.RSS)), 9, true, withBG(stPlain, sel)) + " " +
-			ioCell(p.IOHidden, p.ReadBps, 9, sel) + " " +
-			ioCell(p.IOHidden, p.WriteBps, 9, sel) + " " +
-			cell(unitName(p.Unit), unitW, false, withBG(stAccent, sel)) + " " +
-			cell(cmdOf(p), cmdW, false, withBG(stMuted, sel))
-		lines = append(lines, row)
+		rowCells := []string{
+			cell(strconv.Itoa(int(p.PID)), 6, true, withBG(stPlain, sel)),
+			cell(p.User, 11, false, withBG(stMuted, sel)),
+			cell(p.State, 3, false, withBG(stateStyle(p.State), sel)),
+			cell(f1(p.CPU), 6, true, withBG(lvl(p.CPU, 50, 90), sel)),
+			cell(bytesFmt(float64(p.RSS)), 9, true, withBG(stPlain, sel)),
+			ioCell(p.IOHidden, p.ReadBps, 9, sel),
+			ioCell(p.IOHidden, p.WriteBps, 9, sel),
+		}
+		if showUnit {
+			rowCells = append(rowCells, cell(unitName(p.Unit), unitW, false, withBG(stAccent, sel)))
+		}
+		rowCells = append(rowCells, cell(cmdOf(p), cmdW, false, withBG(stMuted, sel)))
+		lines = append(lines, joinColsSel(sel, rowCells...))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -83,12 +103,12 @@ func (m model) renderPorts(w, h int) string {
 		}
 		return stMuted.Render(msg)
 	}
-	remoteW := w - (6 + 1 + 6 + 1 + 15 + 1 + 11 + 1 + 16 + 1 + 6 + 1)
+	remoteW := w - (6 + 6 + 15 + 11 + 16 + 6) - 6*sepW
 	if remoteW < 10 {
 		remoteW = 10
 	}
-	header := cell("PORT", 6, true, stHeader) + " " + cell("PROTO", 6, false, stHeader) + " " + cell("ADDRESS", 15, false, stHeader) + " " +
-		cell("STATE", 11, false, stHeader) + " " + cell("PROCESS", 16, false, stHeader) + " " + cell("PID", 6, true, stHeader) + " " + cell("REMOTE", remoteW, false, stHeader)
+	header := joinCols(cell("PORT", 6, true, stHeader), cell("PROTO", 6, false, stHeader), cell("ADDRESS", 15, false, stHeader),
+		cell("STATE", 11, false, stHeader), cell("PROCESS", 16, false, stHeader), cell("PID", 6, true, stHeader), cell("REMOTE", remoteW, false, stHeader))
 
 	var lines []string
 	lines = append(lines, header)
@@ -125,9 +145,10 @@ func (m model) renderPorts(w, h int) string {
 		if c.PID > 0 {
 			pidStr = strconv.Itoa(int(c.PID))
 		}
-		row := cell(strconv.Itoa(int(c.LPort)), 6, true, withBG(stPlain.Bold(true), sel)) + " " + cell(c.Proto, 6, false, withBG(stMuted, sel)) + " " +
-			cell(addr, 15, false, withBG(addrStyle, sel)) + " " + cell(c.State, 11, false, withBG(stStyle, sel)) + " " + pad(name, 16, sel) + " " +
-			cell(pidStr, 6, true, withBG(stPlain, sel)) + " " + cell(c.Remote, remoteW, false, withBG(stMuted, sel))
+		row := joinColsSel(sel,
+			cell(strconv.Itoa(int(c.LPort)), 6, true, withBG(stPlain.Bold(true), sel)), cell(c.Proto, 6, false, withBG(stMuted, sel)),
+			cell(addr, 15, false, withBG(addrStyle, sel)), cell(c.State, 11, false, withBG(stStyle, sel)), pad(name, 16, sel),
+			cell(pidStr, 6, true, withBG(stPlain, sel)), cell(c.Remote, remoteW, false, withBG(stMuted, sel)))
 		lines = append(lines, row)
 	}
 	return strings.Join(lines, "\n")
@@ -217,12 +238,12 @@ func (m model) renderDisks(w, h int) string {
 	if len(m.snap.Disks) == 0 {
 		b.WriteString(stMuted.Render("No block devices.") + "\n")
 	} else {
-		b.WriteString(cell("DEVICE", 10, false, stHeader) + " " + cell("R/S", 7, true, stHeader) + " " + cell("W/S", 7, true, stHeader) + " " +
-			cell("READ", 9, true, stHeader) + " " + cell("WRITE", 9, true, stHeader) + " " + cell("AWAIT", 8, true, stHeader) + " " + cell("UTIL%", 6, true, stHeader) + "\n")
+		b.WriteString(joinCols(cell("DEVICE", 10, false, stHeader), cell("R/S", 7, true, stHeader), cell("W/S", 7, true, stHeader),
+			cell("READ", 9, true, stHeader), cell("WRITE", 9, true, stHeader), cell("AWAIT", 8, true, stHeader), cell("UTIL%", 6, true, stHeader)) + "\n")
 		lines := capRows(m.snap.Disks, half, func(d collect.Disk) string {
-			return cell(d.Name, 10, false, stPlain.Bold(true)) + " " + cell(f1(d.RIOPS), 7, true, stPlain) + " " + cell(f1(d.WIOPS), 7, true, stPlain) + " " +
-				cell(rateFmt(d.RBps), 9, true, stPlain) + " " + cell(rateFmt(d.WBps), 9, true, stPlain) + " " +
-				cell(f1(d.AwaitMs), 8, true, lvl(d.AwaitMs, 20, 100)) + " " + cell(f1(d.Util), 6, true, lvl(d.Util, 70, 90))
+			return joinCols(cell(d.Name, 10, false, stPlain.Bold(true)), cell(f1(d.RIOPS), 7, true, stPlain), cell(f1(d.WIOPS), 7, true, stPlain),
+				cell(rateFmt(d.RBps), 9, true, stPlain), cell(rateFmt(d.WBps), 9, true, stPlain),
+				cell(f1(d.AwaitMs), 8, true, lvl(d.AwaitMs, 20, 100)), cell(f1(d.Util), 6, true, lvl(d.Util, 70, 90)))
 		})
 		b.WriteString(strings.Join(lines, "\n") + "\n")
 	}
@@ -230,15 +251,19 @@ func (m model) renderDisks(w, h int) string {
 	if len(m.snap.FS) == 0 {
 		b.WriteString(stMuted.Render("No filesystems."))
 	} else {
-		b.WriteString(cell("MOUNT", 24, false, stHeader) + " " + cell("TYPE", 8, false, stHeader) + " " + cell("SIZE", 9, true, stHeader) + " " +
-			cell("FREE", 9, true, stHeader) + " " + cell("USED%", 7, true, stHeader) + " " + cell("INODE%", 7, true, stHeader) + "\n")
+		mountW := w - (8 + 9 + 9 + 7 + 7) - 5*sepW
+		if mountW < 10 {
+			mountW = 10
+		}
+		b.WriteString(joinCols(cell("MOUNT", mountW, false, stHeader), cell("TYPE", 8, false, stHeader), cell("SIZE", 9, true, stHeader),
+			cell("FREE", 9, true, stHeader), cell("USED%", 7, true, stHeader), cell("INODE%", 7, true, stHeader)) + "\n")
 		lines := capRows(m.snap.FS, half, func(f collect.FS) string {
 			if f.Stale {
-				return cell(f.Mount, 24, false, stPlain.Bold(true)) + " " + stCrit.Render("not responding — statfs is hanging (dead network mount?)")
+				return cell(f.Mount, mountW, false, stPlain.Bold(true)) + colSep + stCrit.Render(truncate("not responding — statfs is hanging (dead network mount?)", w-mountW-sepW))
 			}
-			return cell(f.Mount, 24, false, stPlain.Bold(true)) + " " + cell(f.Type, 8, false, stMuted) + " " +
-				cell(bytesFmt(float64(f.Total)), 9, true, stPlain) + " " + cell(bytesFmt(float64(f.Free)), 9, true, stPlain) + " " +
-				cell(f1(f.UsedPct), 7, true, lvl(f.UsedPct, 80, 90)) + " " + cell(f1(f.InodePct), 7, true, lvl(f.InodePct, 80, 90))
+			return joinCols(cell(f.Mount, mountW, false, stPlain.Bold(true)), cell(f.Type, 8, false, stMuted),
+				cell(bytesFmt(float64(f.Total)), 9, true, stPlain), cell(bytesFmt(float64(f.Free)), 9, true, stPlain),
+				cell(f1(f.UsedPct), 7, true, lvl(f.UsedPct, 80, 90)), cell(f1(f.InodePct), 7, true, lvl(f.InodePct, 80, 90)))
 		})
 		b.WriteString(strings.Join(lines, "\n"))
 	}
@@ -252,18 +277,29 @@ func (m model) renderNet(w, h int) string {
 	if !t.Available {
 		b.WriteString(stMuted.Render("TCP counters unavailable.") + "\n")
 	} else {
-		b.WriteString(fmt.Sprintf("established %s   new out %s/s   new in %s/s   retrans %s   resets %s/s   rx errs %s/s\n",
-			stPlain.Bold(true).Render(strconv.FormatInt(t.Established, 10)),
-			f1(t.ActivePs), f1(t.PassivePs),
-			lvl(t.RetransPct, 1, 5).Render(f1(t.RetransPs)+"/s ("+fmt.Sprintf("%.2f%%", t.RetransPct)+")"),
-			f1(t.ResetPs), lvl(t.InErrPs, 0.1, 10).Render(f1(t.InErrPs))))
+		// Short labels and single-char separators, not three-space gaps: the
+		// old wording ("established", "new out", "rx errs") plus literal
+		// triple-spacing overflowed an 80-column terminal on its own, before
+		// any column-separator changes.
+		b.WriteString(joinCols(
+			"estab "+stPlain.Bold(true).Render(strconv.FormatInt(t.Established, 10)),
+			"out "+f1(t.ActivePs)+"/s",
+			"in "+f1(t.PassivePs)+"/s",
+			"retrans "+lvl(t.RetransPct, 1, 5).Render(f1(t.RetransPs)+"/s"),
+			"resets "+f1(t.ResetPs)+"/s",
+			"rx-err "+lvl(t.InErrPs, 0.1, 10).Render(f1(t.InErrPs)),
+		) + "\n")
 	}
 	b.WriteString("\n" + stHeader.Render("INTERFACES") + "\n")
 	if len(m.snap.NICs) == 0 {
 		b.WriteString(stMuted.Render("No interfaces."))
 	} else {
-		b.WriteString(cell("NAME", 12, false, stHeader) + " " + cell("RX", 9, true, stHeader) + " " + cell("TX", 9, true, stHeader) + " " +
-			cell("PPS IN", 8, true, stHeader) + " " + cell("PPS OUT", 8, true, stHeader) + " " + cell("ERR/S", 7, true, stHeader) + " " + cell("DROP/S", 7, true, stHeader) + "\n")
+		nameW := w - (9 + 9 + 8 + 8 + 7 + 7) - 6*sepW
+		if nameW < 8 {
+			nameW = 8
+		}
+		b.WriteString(joinCols(cell("NAME", nameW, false, stHeader), cell("RX", 9, true, stHeader), cell("TX", 9, true, stHeader),
+			cell("PPS IN", 8, true, stHeader), cell("PPS OUT", 8, true, stHeader), cell("ERR/S", 7, true, stHeader), cell("DROP/S", 7, true, stHeader)) + "\n")
 		// A container host can have dozens to hundreds of veth interfaces —
 		// cap the list against the tab's height budget like every other
 		// table does, instead of printing an unbounded interface list.
@@ -279,8 +315,8 @@ func (m model) renderNet(w, h int) string {
 			if n.DropPs > 0 {
 				dropStyle = stWarn
 			}
-			return cell(n.Name, 12, false, stPlain.Bold(true)) + " " + cell(rateFmt(n.RxBps), 9, true, stPlain) + " " + cell(rateFmt(n.TxBps), 9, true, stPlain) + " " +
-				cell(f1(n.RxPps), 8, true, stPlain) + " " + cell(f1(n.TxPps), 8, true, stPlain) + " " + cell(f1(n.ErrPs), 7, true, errStyle) + " " + cell(f1(n.DropPs), 7, true, dropStyle)
+			return joinCols(cell(n.Name, nameW, false, stPlain.Bold(true)), cell(rateFmt(n.RxBps), 9, true, stPlain), cell(rateFmt(n.TxBps), 9, true, stPlain),
+				cell(f1(n.RxPps), 8, true, stPlain), cell(f1(n.TxPps), 8, true, stPlain), cell(f1(n.ErrPs), 7, true, errStyle), cell(f1(n.DropPs), 7, true, dropStyle))
 		})
 		b.WriteString(strings.Join(lines, "\n"))
 	}

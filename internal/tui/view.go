@@ -52,13 +52,17 @@ func (m model) renderHeader(w int) string {
 	if !s.Root {
 		warnNote = "  limited view: run with sudo"
 	}
+	logo := "whytop"
+	if m.opt.Version != "" {
+		logo += " " + m.opt.Version
+	}
 	// A long hostname or a narrow terminal (an 80-column SSH default is
 	// common) can't be allowed to overflow: unlike the tab bar, this row's
 	// budget assumption (renderTab's avail := h-6) breaks if the header
 	// wraps onto a second physical line. Every variable-length piece's
 	// budget is derived from w itself, not a fixed constant — a fixed cap
 	// still overflows once w drops below it.
-	reserved := len("whytop  ") + 2 + len(warnNote) + lipgloss.Width(status) + 1
+	reserved := len(logo) + 2 + 2 + len(warnNote) + lipgloss.Width(status) + 1
 	avail := max0(w - reserved)
 	hostBudget := avail
 	if hostBudget > 40 {
@@ -68,7 +72,7 @@ func (m model) renderHeader(w int) string {
 	metaBudget := max0(avail - lipgloss.Width(host) - 2)
 	meta := truncate(fmt.Sprintf("up %s · %d cores · %d processes", dur(s.Uptime), s.CPU.Cores, len(s.Procs)), metaBudget)
 
-	left := stLogo.Render("whytop") + "  " + stHost.Render(host) + "  " + stMuted.Render(meta)
+	left := stLogo.Render(logo) + "  " + stHost.Render(host) + "  " + stMuted.Render(meta)
 	if warnNote != "" {
 		left += stWarn.Render(warnNote)
 	}
@@ -255,7 +259,24 @@ func (m model) renderFooter(w int) string {
 	for _, k := range keys {
 		parts = append(parts, stFooterKey.Render(k[0])+stFooterTxt.Render(" "+k[1]))
 	}
-	line := strings.Join(parts, "  ")
+	// Keep only as many hints as actually fit: a narrow terminal with a long
+	// key list (the default screen's has seven) can genuinely run past 80
+	// columns, and losing the least essential trailing hint is better than
+	// silently overflowing or wrapping onto a second line.
+	gap := " " + colSep
+	budget, kept := w, parts[:0:0]
+	for i, p := range parts {
+		add := visLen(p)
+		if i > 0 {
+			add += visLen(gap)
+		}
+		if budget-add < 0 {
+			break
+		}
+		budget -= add
+		kept = append(kept, p)
+	}
+	line := strings.Join(kept, gap)
 	if m.editing {
 		i := int(m.tab)
 		line = stAccent.Render("filter: ") + m.filter[i] + stMuted.Render("█") + "   " + line
