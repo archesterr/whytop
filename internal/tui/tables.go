@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -298,10 +299,15 @@ func capRows[T any](rows []T, maxRows int, render func(T) string) []string {
 }
 
 func (m model) renderDisks(w, h int) string {
-	// Split the tab's height budget between the two sections (each with a
-	// section header + column header of its own), so a host with many disks
-	// doesn't crowd the filesystems section off-screen or vice versa.
-	half := max0(h/2 - 3)
+	// A fixed slice goes to "who is actually driving this number" — the one
+	// question raw device counters can never answer on their own — and the
+	// other two sections split what's left, same as before.
+	procH := 8
+	if h < 24 {
+		procH = 6
+	}
+	rest := max0(h - procH)
+	half := max0(rest/2 - 3)
 	if half < 3 {
 		half = 3
 	}
@@ -312,14 +318,20 @@ func (m model) renderDisks(w, h int) string {
 		b.WriteString(stMuted.Render("No block devices.") + "\n")
 	} else {
 		b.WriteString(joinCols(centerCell("DEVICE", 10, stHeader), centerCell("R/S", 7, stHeader), centerCell("W/S", 7, stHeader),
-			centerCell("READ", 9, stHeader), centerCell("WRITE", 9, stHeader), centerCell("AWAIT", 8, stHeader), centerCell("UTIL%", 6, stHeader)) + "\n")
+			centerCell("READ", 9, stHeader), centerCell("WRITE", 9, stHeader), centerCell("AWAIT", 8, stHeader),
+			centerCell("QUEUE", 6, stHeader), centerCell("UTIL%", 6, stHeader)) + "\n")
 		lines := capRows(m.snap.Disks, half, func(d collect.Disk) string {
 			return joinCols(cell(d.Name, 10, false, stPlain.Bold(true)), cell(f1(d.RIOPS), 7, true, stPlain), cell(f1(d.WIOPS), 7, true, stPlain),
 				cell(rateFmt(d.RBps), 9, true, stPlain), cell(rateFmt(d.WBps), 9, true, stPlain),
-				cell(f1(d.AwaitMs), 8, true, lvl(d.AwaitMs, 20, 100)), cell(f1(d.Util), 6, true, lvl(d.Util, 70, 90)))
+				cell(f1(d.AwaitMs), 8, true, lvl(d.AwaitMs, 20, 100)), cell(f1(d.Queue), 6, true, lvl(d.Queue, 1, 4)),
+				cell(f1(d.Util), 6, true, lvl(d.Util, 70, 90)))
 		})
 		b.WriteString(strings.Join(lines, "\n") + "\n")
 	}
+
+	b.WriteString("\n" + stHeader.Render("TOP PROCESSES BY DISK I/O") + "\n")
+	b.WriteString(m.renderDiskProcs(w, procH) + "\n")
+
 	b.WriteString("\n" + stHeader.Render("FILESYSTEMS") + "\n")
 	if len(m.snap.FS) == 0 {
 		b.WriteString(stMuted.Render("No filesystems."))
@@ -341,6 +353,43 @@ func (m model) renderDisks(w, h int) string {
 		b.WriteString(strings.Join(lines, "\n"))
 	}
 	return b.String()
+}
+
+// renderDiskProcs answers the question device counters alone never can: not
+// just "this disk is busy" but which process is doing it. A process that's
+// actually blocked on I/O right now (state D) always sorts to the top, even
+// if its measured bytes/sec this particular tick happens to be low — that's
+// the one worth looking at. Below that, everything with nonzero read+write
+// this tick, ranked by total throughput.
+func (m model) renderDiskProcs(w, h int) string {
+	procs := make([]collect.Proc, 0)
+	for _, p := range m.snap.Procs {
+		if p.State == "D" || p.ReadBps+p.WriteBps > 0 {
+			procs = append(procs, p)
+		}
+	}
+	if len(procs) == 0 {
+		return stMuted.Render("No process disk activity right now.")
+	}
+	sort.Slice(procs, func(i, j int) bool {
+		di, dj := procs[i].State == "D", procs[j].State == "D"
+		if di != dj {
+			return di
+		}
+		return procs[i].ReadBps+procs[i].WriteBps > procs[j].ReadBps+procs[j].WriteBps
+	})
+	cmdW := w - (6 + 11 + 3 + 9 + 9) - 4*sepW
+	if cmdW < 12 {
+		cmdW = 12
+	}
+	header := joinCols(centerCell("PID", 6, stHeader), centerCell("USER", 11, stHeader), centerCell("ST", 3, stHeader),
+		centerCell("READ", 9, stHeader), centerCell("WRITE", 9, stHeader), centerCell("COMMAND", cmdW, stHeader))
+	lines := capRows(procs, h-1, func(p collect.Proc) string {
+		return joinCols(cell(strconv.Itoa(int(p.PID)), 6, true, stPlain), cell(p.User, 11, false, stMuted),
+			cell(p.State, 3, false, stateStyle(p.State)), ioCell(p.IOHidden, p.ReadBps, 9, false), ioCell(p.IOHidden, p.WriteBps, 9, false),
+			cell(cmdOf(p), cmdW, false, stMuted))
+	})
+	return header + "\n" + strings.Join(lines, "\n")
 }
 
 func (m model) renderNet(w, h int) string {
