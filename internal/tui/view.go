@@ -130,7 +130,7 @@ func (m model) renderHeader(w int) string {
 	if hostBudget > 40 {
 		hostBudget = 40 // don't let a long hostname alone hog a wide terminal
 	}
-	host := truncate(s.Host, hostBudget)
+	host := truncate(safeText(s.Host), hostBudget)
 	metaBudget := max0(avail - lipgloss.Width(host) - 2)
 	meta := truncate(fmt.Sprintf("up %s · %d cores · %d processes", dur(s.Uptime), s.CPU.Cores, len(s.Procs)), metaBudget)
 
@@ -477,6 +477,7 @@ func centerCell(s string, width int, style lipgloss.Style) string {
 	if width <= 0 {
 		return ""
 	}
+	s = safeText(s)
 	r := []rune(s)
 	if len(r) > width {
 		s = truncate(s, width)
@@ -496,6 +497,7 @@ func cell(s string, width int, right bool, style lipgloss.Style) string {
 	if width <= 0 {
 		return ""
 	}
+	s = safeText(s)
 	r := []rune(s)
 	if len(r) > width {
 		if width > 1 {

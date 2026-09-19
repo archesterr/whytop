@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestSignalRefusesUnsafeTargets(t *testing.T) {
@@ -19,7 +20,7 @@ func TestSignalRefusesUnsafeTargets(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if err := Signal(c.pid, syscall.SIGTERM); err == nil {
+			if err := Signal(c.pid, syscall.SIGTERM, time.Time{}); err == nil {
 				t.Fatalf("Signal(%d) = nil, want refusal", c.pid)
 			}
 		})
@@ -97,7 +98,7 @@ func TestFDActionsRefuseDangerousTargets(t *testing.T) {
 		if err := CloseFD(c.pid, c.fd); err == nil {
 			t.Errorf("CloseFD accepted %s (pid=%d fd=%q)", c.name, c.pid, c.fd)
 		}
-		if err := TruncateFD(c.pid, c.fd); err == nil {
+		if err := TruncateFD(c.pid, c.fd, ""); err == nil {
 			t.Errorf("TruncateFD accepted %s (pid=%d fd=%q)", c.name, c.pid, c.fd)
 		}
 	}

@@ -64,7 +64,14 @@ Every destructive action asks for confirmation. The mouse works too: click a tab
 
 ## Security
 
+whytop runs as root and can kill processes, restart units, edit unit files and empty a running process's files, so it's built on one rule: **whytop must never let anyone do something through it that they could not do themselves.**
+
 - No listening socket, ever — whytop inherits whatever access the shell it's run from already has, nothing more.
+- **Nothing runs through a shell.** Every external call is `exec` with an argument list, and unit names — which reach whytop from cgroup paths and `systemctl` output, not from a human typing them — are validated against systemd's own character set before they become arguments. A name like `--version` is refused rather than read by `systemctl` as an option.
+- **Untrusted text can't drive your terminal.** A process's argv, a unit description, a journal line and a descriptor's target are all chosen by someone else and drawn into a root operator's terminal. Control characters in them are stripped at the render boundary, so an `ESC[2J` in a process name shows up as visible `·[2J` instead of clearing your screen and repainting a convincing fake prompt.
+- **Signals can't hit a recycled PID.** Between drawing a row and confirming a kill, a process can exit and the kernel can hand its number to something else. Every signal re-checks the target's start time and refuses if it changed.
+- **Emptying a file is checked against the descriptor's owner, not against root.** Opening `/proc/<pid>/fd/<n>` re-opens the target with *whytop's* credentials — so without a check, any local user holding a read-only descriptor on a root-owned file could have root empty it for them. whytop applies the permission check the kernel would have applied to the process's own user, and refuses anything that isn't a regular file. The descriptor is also re-read at the moment of action and must still point where it did when you confirmed.
+- **Privileged actions are audited.** Every signal, restart, `daemon-reload`, file-empty and descriptor-close is logged to syslog under `AUTHPRIV`, naming the `SUDO_USER` behind it. Read-only browsing is never logged — the point is the changes.
 - Refuses to signal PID 1, or itself, or restart scopes and user sessions — and the same goes for touching their open descriptors.
 - `t` (empty a file) is the fix for "df says full, du finds nothing": a deleted file whose space the kernel won't reclaim while something still holds it open. It returns the space and leaves the descriptor valid, so the process keeps running.
 - `c` (close a descriptor) is the blunt one. The kernel has no syscall for closing someone else's descriptor, so whytop attaches gdb and calls `close()` in the target's own context. The process is never told, and will get `EBADF` the next time it touches that descriptor — it may fail or crash. Prefer `t`.

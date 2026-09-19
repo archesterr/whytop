@@ -358,13 +358,15 @@ func (m model) procByPID(pid int32) (collect.Proc, bool) {
 	return collect.Proc{}, false
 }
 
-func doSignal(pid int32, sig string) tea.Cmd {
+// doSignal carries the start time the operator's row was drawn from, so the
+// signal lands on that process or on nothing — see actions.Signal.
+func doSignal(pid int32, sig string, started time.Time) tea.Cmd {
 	return func() tea.Msg {
 		s, ok := map[string]syscall.Signal{"TERM": syscall.SIGTERM, "KILL": syscall.SIGKILL}[sig]
 		if !ok {
 			return actionMsg{ok: false, text: "unknown signal " + sig}
 		}
-		if err := actions.Signal(pid, s); err != nil {
+		if err := actions.Signal(pid, s, started); err != nil {
 			return actionMsg{ok: false, text: err.Error()}
 		}
 		return actionMsg{ok: true, text: fmt.Sprintf("%s sent to PID %d", sig, pid)}

@@ -269,7 +269,7 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		pid, fd, target := m.detail.pid, f.FD, f.Target
 		m.confirm = &confirmState{
 			prompt: fmt.Sprintf("Empty %s (fd %s)? The space comes back and the process keeps running. [y/N]", truncate(target, 48), fd),
-			run:    func() tea.Cmd { return doTruncateFD(pid, fd) },
+			run:    func() tea.Cmd { return doTruncateFD(pid, fd, target) },
 		}
 	case "c":
 		f, ok := m.selectedFile()
@@ -292,12 +292,11 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "X" {
 			sig, verb, danger = "KILL", "Force kill", true
 		}
-		pid := p.PID
-		name := p.Name
+		pid, name, started := p.PID, p.Name, p.Started
 		m.confirm = &confirmState{
 			danger: danger,
-			prompt: fmt.Sprintf("%s %s (PID %d)? [y/N]", verb, name, pid),
-			run:    func() tea.Cmd { return doSignal(pid, sig) },
+			prompt: fmt.Sprintf("%s %s (PID %d)? [y/N]", verb, safeText(name), pid),
+			run:    func() tea.Cmd { return doSignal(pid, sig, started) },
 		}
 	case "r":
 		p, ok := m.procByPID(m.detail.pid)

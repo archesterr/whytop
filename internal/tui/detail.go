@@ -35,15 +35,15 @@ func (m model) renderDetail(w, h int) string {
 	}
 
 	var b strings.Builder
-	title := stBold.Render(p.Name) + stMuted.Render(fmt.Sprintf("  PID %d", p.PID))
+	title := stBold.Render(safeText(p.Name)) + stMuted.Render(fmt.Sprintf("  PID %d", p.PID))
 	if p.Unit != "" {
-		title += "  " + stAccent.Render(unitName(p.Unit))
+		title += "  " + stAccent.Render(safeText(unitName(p.Unit)))
 	}
 	b.WriteString(title + "\n")
 
 	parent := "–"
 	if pp, ok := m.procByPID(p.PPID); ok {
-		parent = fmt.Sprintf("%s (%d)", pp.Name, p.PPID)
+		parent = fmt.Sprintf("%s (%d)", safeText(pp.Name), p.PPID)
 	} else if p.PPID > 0 {
 		parent = strconv.Itoa(int(p.PPID))
 	}
@@ -65,7 +65,7 @@ func (m model) renderDetail(w, h int) string {
 
 	facts := [][2]string{
 		{"State", stateStyle(p.State).Render(p.State) + " " + stateDesc(p.State)},
-		{"User", p.User},
+		{"User", safeText(p.User)},
 		{"Parent", parent},
 		{"Started", ago(p.Started) + " ago"},
 		{"CPU", f1(p.CPU) + "%" + withKids(f1(cpu)+"%")},
@@ -74,10 +74,10 @@ func (m model) renderDetail(w, h int) string {
 		{"Disk write", ioCellText(p.IOHidden, p.WriteBps) + withKids(rateFmt(wr))},
 		{"Threads", strconv.Itoa(int(p.Threads))},
 		{"Open files", fds},
-		{"Unit", unitName(p.Unit) + unitStatus},
+		{"Unit", safeText(unitName(p.Unit) + unitStatus)},
 	}
 	if p.Container != "" {
-		facts = append(facts, [2]string{"Container", stAccent.Render(p.Container) + " " + stMuted.Render(p.Runtime)})
+		facts = append(facts, [2]string{"Container", stAccent.Render(safeText(p.Container)) + " " + stMuted.Render(safeText(p.Runtime))})
 	}
 	if d.loaded && d.extra.OOMScore != "" {
 		facts = append(facts, [2]string{"OOM score", d.extra.OOMScore + " (adjust " + d.extra.OOMAdj + ")"})
@@ -105,7 +105,7 @@ func (m model) renderDetail(w, h int) string {
 		}
 		b.WriteString(joinColsWith(colSep, cells...) + "\n")
 	}
-	b.WriteString(stMuted.Render("Command  ") + truncate(cmdOf(p), w-9) + "\n")
+	b.WriteString(stMuted.Render("Command  ") + truncate(safeText(cmdOf(p)), w-9) + "\n")
 
 	restartLine := "restart: checking…"
 	if d.loaded {
@@ -361,7 +361,10 @@ func renderJournal(text string, w, h int) string {
 		lines = lines[len(lines)-h:]
 	}
 	for i, l := range lines {
-		lines[i] = truncate(l, w)
+		// Scrubbed per line, after the split: the newlines are this text's
+		// structure, everything else in it is a log message someone else
+		// wrote and is not to be trusted with the terminal.
+		lines[i] = truncate(safeText(l), w)
 	}
 	return stMuted.Render(strings.Join(lines, "\n"))
 }
@@ -385,9 +388,9 @@ func (d *detailState) moveDetailSel(delta, tree, files int) {
 	}
 }
 
-func doTruncateFD(pid int32, fd string) tea.Cmd {
+func doTruncateFD(pid int32, fd, target string) tea.Cmd {
 	return func() tea.Msg {
-		if err := actions.TruncateFD(pid, fd); err != nil {
+		if err := actions.TruncateFD(pid, fd, target); err != nil {
 			return actionMsg{ok: false, text: err.Error()}
 		}
 		return actionMsg{ok: true, text: fmt.Sprintf("Emptied fd %s of PID %d — space reclaimed, process untouched", fd, pid)}

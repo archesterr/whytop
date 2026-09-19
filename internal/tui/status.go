@@ -31,8 +31,10 @@ func (m model) findings() []finding {
 		return nil
 	}
 	var out []finding
+	// Device and mount names reach this line straight from the system, so
+	// the finished sentence is scrubbed like any other untrusted text.
 	add := func(crit bool, format string, args ...any) {
-		out = append(out, finding{crit: crit, text: fmt.Sprintf(format, args...)})
+		out = append(out, finding{crit: crit, text: safeText(fmt.Sprintf(format, args...))})
 	}
 
 	// Processes stuck in uninterruptible sleep are the most actionable
