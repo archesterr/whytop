@@ -2,8 +2,6 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Colors mirror the web UI's palette (internal/web/static/index.html) so the
-// two front ends feel like the same product.
 var (
 	colBg     = lipgloss.Color("#1a1f27")
 	colPanel  = lipgloss.Color("#212733")

@@ -1,7 +1,6 @@
-// Package tui is a terminal front end for whytop: the same collector and
-// action guards as the web UI (internal/collect, internal/actions), no HTTP
-// layer, no browser, no token — just SSH in and run it. Meant for servers
-// where opening a browser (even tunneled) is more friction than it's worth.
+// Package tui is whytop's terminal front end: it drives internal/collect and
+// internal/actions directly, in-process — no HTTP layer, no browser, no
+// token. Just SSH in and run it.
 package tui
 
 import (
@@ -30,7 +29,7 @@ func (t tab) String() string {
 	return [...]string{"Processes", "Ports", "Disks", "Network"}[t]
 }
 
-// Options mirrors web.Options minus the network-facing fields.
+// Options configures a Run.
 type Options struct {
 	Interval time.Duration
 	Version  string
@@ -204,8 +203,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// resolveDeepLink honors -pid/-port on the first snapshot that can satisfy
-// it, mirroring the web UI's #pid=/#port= deep links.
+// resolveDeepLink honors -pid/-port on the first snapshot that can satisfy it.
 func (m *model) resolveDeepLink() tea.Cmd {
 	switch {
 	case m.deepPID > 0:
