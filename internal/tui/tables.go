@@ -302,12 +302,12 @@ func (m model) renderDisks(w, h int) string {
 	// A fixed slice goes to "who is actually driving this number" — the one
 	// question raw device counters can never answer on their own — and the
 	// other two sections split what's left, same as before.
-	procH := 8
+	procH := 7
 	if h < 24 {
-		procH = 6
+		procH = 5
 	}
 	rest := max0(h - procH)
-	half := max0(rest/2 - 3)
+	half := max0(rest/2 - 2)
 	if half < 3 {
 		half = 3
 	}
@@ -329,10 +329,10 @@ func (m model) renderDisks(w, h int) string {
 		b.WriteString(strings.Join(lines, "\n") + "\n")
 	}
 
-	b.WriteString("\n" + stHeader.Render("TOP PROCESSES BY DISK I/O") + "\n")
+	b.WriteString(stHeader.Render("TOP PROCESSES BY DISK I/O") + "\n")
 	b.WriteString(m.renderDiskProcs(w, procH) + "\n")
 
-	b.WriteString("\n" + stHeader.Render("FILESYSTEMS") + "\n")
+	b.WriteString(stHeader.Render("FILESYSTEMS") + "\n")
 	if len(m.snap.FS) == 0 {
 		b.WriteString(stMuted.Render("No filesystems."))
 	} else {
@@ -412,7 +412,7 @@ func (m model) renderNet(w, h int) string {
 			"rx-err "+lvl(t.InErrPs, 0.1, 10).Render(f1(t.InErrPs)),
 		) + "\n")
 	}
-	b.WriteString("\n" + stHeader.Render("INTERFACES") + "\n")
+	b.WriteString(stHeader.Render("INTERFACES") + "\n")
 	if len(m.snap.NICs) == 0 {
 		b.WriteString(stMuted.Render("No interfaces."))
 	} else {
@@ -425,7 +425,7 @@ func (m model) renderNet(w, h int) string {
 		// A container host can have dozens to hundreds of veth interfaces —
 		// cap the list against the tab's height budget like every other
 		// table does, instead of printing an unbounded interface list.
-		maxRows := max0(h - 6)
+		maxRows := max0(h - 5)
 		if maxRows < 3 {
 			maxRows = 3
 		}

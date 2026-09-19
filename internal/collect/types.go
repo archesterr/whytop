@@ -29,6 +29,14 @@ type Snapshot struct {
 	FS    []FS
 	NICs  []NIC
 	TCP   TCP
+
+	Units          []Unit
+	UnitsCollected bool
+}
+
+// Unit is one systemd service unit, as `systemctl list-units` reports it.
+type Unit struct {
+	Name, Load, Active, Sub, Description string
 }
 
 type CPU struct {

@@ -1,9 +1,11 @@
 package collect
 
 import (
+	"context"
 	"math"
 	"net"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +26,10 @@ type Collector struct {
 	// WantConns enables socket collection. It walks every /proc/<pid>/fd,
 	// so it only runs while a view needs it.
 	WantConns atomic.Bool
+
+	// WantUnits enables systemd unit listing — a `systemctl` round-trip, so
+	// it only runs while the Units tab is actually open.
+	WantUnits atomic.Bool
 
 	boot     time.Time
 	prevAt   time.Time
@@ -83,9 +89,39 @@ func (c *Collector) Collect() *Snapshot {
 	c.collectDisks(s, elapsed)
 	c.collectFS(s)
 	c.collectNet(s, elapsed)
+	if c.WantUnits.Load() {
+		collectUnits(s)
+	}
 
 	c.prevAt = now
 	return s
+}
+
+// collectUnits lists systemd service units — the Units tab's own data, kept
+// separate from per-process unit lookups (UnitStatus in actions) since this
+// needs every unit, not just one already known to be attached to a process.
+func collectUnits(s *Snapshot) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "systemctl", "list-units", "--type=service", "--all", "--no-legend", "--plain", "--no-pager").Output()
+	if err != nil {
+		return
+	}
+	s.UnitsCollected = true
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "●"))
+		f := strings.Fields(line)
+		if len(f) < 4 {
+			continue
+		}
+		idx := strings.Index(line, f[3])
+		desc := ""
+		if idx >= 0 {
+			desc = strings.TrimSpace(line[idx+len(f[3]):])
+		}
+		s.Units = append(s.Units, Unit{Name: f[0], Load: f[1], Active: f[2], Sub: f[3], Description: desc})
+	}
+	sort.Slice(s.Units, func(i, j int) bool { return s.Units[i].Name < s.Units[j].Name })
 }
 
 func (c *Collector) collectCPU(s *Snapshot) {

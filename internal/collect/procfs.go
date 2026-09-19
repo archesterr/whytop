@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/user"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -273,6 +274,30 @@ type Extra struct {
 	FDs              int // -1 when unreadable
 	FDLimit          string
 	OOMScore, OOMAdj string
+	OpenFiles        []OpenFile
+}
+
+// OpenFile is one entry from /proc/<pid>/fd — what iotop and top never show
+// at all, and lsof/ls -l /proc/<pid>/fd need a separate shell round-trip for.
+type OpenFile struct {
+	FD     string
+	Target string
+	Kind   string // file, dir, pipe, socket, anon, deleted
+}
+
+func classifyFD(target string) string {
+	switch {
+	case strings.HasPrefix(target, "socket:"):
+		return "socket"
+	case strings.HasPrefix(target, "pipe:"):
+		return "pipe"
+	case strings.HasPrefix(target, "anon_inode:"):
+		return "anon"
+	case strings.HasSuffix(target, " (deleted)"):
+		return "deleted"
+	default:
+		return "file"
+	}
 }
 
 func ProcExtra(pid int32) Extra {
@@ -283,6 +308,18 @@ func ProcExtra(pid int32) Extra {
 	if d, err := os.Open(base + "/fd"); err == nil {
 		if names, err := d.Readdirnames(-1); err == nil {
 			e.FDs = len(names)
+			sort.Slice(names, func(i, j int) bool {
+				ni, _ := strconv.Atoi(names[i])
+				nj, _ := strconv.Atoi(names[j])
+				return ni < nj
+			})
+			for _, n := range names {
+				target, err := os.Readlink(base + "/fd/" + n)
+				if err != nil {
+					continue
+				}
+				e.OpenFiles = append(e.OpenFiles, OpenFile{FD: n, Target: target, Kind: classifyFD(target)})
+			}
 		}
 		d.Close()
 	}

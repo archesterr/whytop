@@ -73,10 +73,12 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.tab = tabDisks
 	case "4":
 		m.tab = tabNet
+	case "5":
+		m.tab = tabUnits
 	case "right", "tab", "l":
-		m.tab = (m.tab + 1) % 4
+		m.tab = (m.tab + 1) % numTabs
 	case "left", "shift+tab", "h":
-		m.tab = (m.tab + 3) % 4
+		m.tab = (m.tab + numTabs - 1) % numTabs
 	case "p":
 		m.paused = !m.paused
 		if !m.paused {
@@ -101,11 +103,26 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.allConns = !m.allConns
 		}
 	case "up", "k":
-		m.moveSel(-1)
+		if m.tab == tabUnits {
+			m.moveUnitSel(-1)
+		} else {
+			m.moveSel(-1)
+		}
 	case "down", "j":
-		m.moveSel(1)
+		if m.tab == tabUnits {
+			m.moveUnitSel(1)
+		} else {
+			m.moveSel(1)
+		}
 	case "enter":
 		return m.openSelected()
+	case "e":
+		if m.tab == tabUnits {
+			if u, ok := m.selectedUnit(); ok {
+				return m, m.editUnitCmd(u.Name)
+			}
+			return m.showToast("No unit selected.", false)
+		}
 	}
 	return m, nil
 }
@@ -197,11 +214,11 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc":
 		m.detail = nil
-	case "up", "k":
+	case "up":
 		if m.detail.treeSel > 0 {
 			m.detail.treeSel--
 		}
-	case "down", "j":
+	case "down":
 		nodes := m.currentTree()
 		if m.detail.treeSel < len(nodes)-1 {
 			m.detail.treeSel++
@@ -215,7 +232,10 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(m.loadExtraCmd(pid), m.loadJournalCmd(pid))
 			}
 		}
-	case "l":
+	case "j":
+		// "j" for journal, not "l" — the arrow keys already cover tree
+		// navigation here, so the letter is free for the mnemonic it
+		// actually matches instead of an arbitrary one.
 		return m, m.loadJournalCmd(m.detail.pid)
 	case "x", "X":
 		p, ok := m.procByPID(m.detail.pid)

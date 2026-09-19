@@ -50,6 +50,37 @@ func RestartUnit(unit string) error {
 	return nil
 }
 
+// UnitFragmentPath returns the on-disk unit file for a systemd unit, so it
+// can be opened in an editor — a transient or kernel-generated unit (no
+// FragmentPath) can't be edited this way, which is reported as an error
+// rather than silently opening an empty file.
+func UnitFragmentPath(unit string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "systemctl", "show", unit, "--no-pager", "-p", "FragmentPath").Output()
+	if err != nil {
+		return "", fmt.Errorf("systemctl show %s: %w", unit, err)
+	}
+	_, path, _ := strings.Cut(strings.TrimSpace(string(out)), "=")
+	if path == "" {
+		return "", fmt.Errorf("%s has no unit file on disk (transient or kernel-generated)", unit)
+	}
+	return path, nil
+}
+
+// DaemonReload runs `systemctl daemon-reload` — required after editing a
+// unit file for the change to take effect, and never run automatically:
+// the caller always confirms with the user first.
+func DaemonReload() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "systemctl", "daemon-reload").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("systemctl daemon-reload: %v %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func UnitStatus(unit string) map[string]string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

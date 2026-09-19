@@ -23,10 +23,13 @@ const (
 	tabPorts
 	tabDisks
 	tabNet
+	tabUnits
 )
 
+const numTabs = 5
+
 func (t tab) String() string {
-	return [...]string{"Processes", "Ports", "Disks", "Network"}[t]
+	return [...]string{"Processes", "Ports", "Disks", "Network", "Units"}[t]
 }
 
 // Options configures a Run.
@@ -96,6 +99,7 @@ type model struct {
 	editing  bool
 	allConns bool
 	sel      [2]string // selected row key, indexed by tabProcs/tabPorts
+	unitSel  string    // selected unit name, for the Units tab
 
 	detail  *detailState
 	confirm *confirmState
@@ -156,8 +160,10 @@ func (m model) pollOOMCmd(after time.Duration) tea.Cmd {
 func (m model) collectCmd(after time.Duration) tea.Cmd {
 	col := m.col
 	wantConns := m.tab == tabPorts || m.detail != nil || m.deepPort > 0
+	wantUnits := m.tab == tabUnits
 	return tea.Tick(after, func(time.Time) tea.Msg {
 		col.WantConns.Store(wantConns)
+		col.WantUnits.Store(wantUnits)
 		return snapMsg(col.Collect())
 	})
 }
@@ -239,6 +245,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
+
+	case startEditMsg:
+		return m, tea.ExecProcess(msg.cmd, func(err error) tea.Msg {
+			return editDoneMsg{err: err, unit: msg.unit}
+		})
+
+	case editDoneMsg:
+		if msg.err != nil {
+			_, cmd := m.showToast("Editor exited with an error: "+msg.err.Error(), false)
+			return m, cmd
+		}
+		m.confirm = &confirmState{
+			prompt: fmt.Sprintf("Reload the systemd daemon to apply changes to %s? [y/N]", msg.unit),
+			run:    func() tea.Cmd { return doDaemonReload() },
+		}
+		return m, nil
 	}
 	return m, nil
 }
