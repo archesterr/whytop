@@ -73,6 +73,10 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.tab = tabDisks
 	case "4":
 		m.tab = tabNet
+	case "right", "tab", "l":
+		m.tab = (m.tab + 1) % 4
+	case "left", "shift+tab", "h":
+		m.tab = (m.tab + 3) % 4
 	case "p":
 		m.paused = !m.paused
 		if !m.paused {

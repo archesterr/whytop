@@ -33,7 +33,7 @@ func TestClickOutsideAnyTabDoesNothing(t *testing.T) {
 }
 
 func TestClickRowSelectsAndOpensProcess(t *testing.T) {
-	m := model{snap: testSnap(), tab: tabProcs, sortKey: "pid", width: 100}
+	m := model{snap: testSnap(), tab: tabProcs, sortKey: "pid", width: 100, height: 30}
 	// rows are sorted by pid ascending: 1 (init), 42 (nginx), 43 (worker)
 	got, cmd := m.handleClick(0, listFirstRow+1) // second row -> PID 42
 	gm := got.(model)

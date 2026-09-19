@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -41,14 +42,38 @@ func (m model) View() string {
 	b.WriteString("\n")
 
 	b.WriteString(m.renderFooter(w))
-	return b.String()
+
+	// Always emit the same total line count across frames. Two consecutive
+	// live-refresh frames can legitimately differ in line count (the
+	// process list shrinks by one row, say), and without this, bubbletea's
+	// screen diff can leave a stale line from the taller previous frame
+	// sitting under the new, shorter one — the same visual glitch as the
+	// footer/table collision bug, but between ticks instead of within one
+	// frame.
+	//
+	// The target is h-1, not h: writing content into every single row of
+	// the terminal, including the very last one, means the next line feed
+	// has nowhere to go but to scroll the whole alt-screen buffer up by
+	// one row — which shifts every future frame's content up out of place.
+	// Leaving the last row untouched is the margin that avoids it.
+	target := h - 1
+	if target < 1 {
+		target = 1
+	}
+	lines := strings.Split(b.String(), "\n")
+	if len(lines) < target {
+		lines = append(lines, make([]string, target-len(lines))...)
+	} else if len(lines) > target {
+		lines = lines[:target]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m model) renderHeader(w int) string {
 	s := m.snap
-	status := stOK.Render("● live")
+	status := stOK.Render("● live") + "  " + stAccent.Render(time.Now().Format("15:04:05"))
 	if m.paused {
-		status = stWarn.Render("● paused")
+		status = stWarn.Render("● paused") + "  " + stAccent.Render(time.Now().Format("15:04:05"))
 	}
 
 	warnNote := ""
@@ -226,6 +251,18 @@ func hrule(w int) string {
 	return stFaint.Render(strings.Repeat("─", w))
 }
 
+// tabRowsBudget is the number of data rows renderProcs/renderPorts actually
+// draw (header line already subtracted) — mouse click hit-testing needs the
+// exact same number to translate a screen row back into a list index,
+// since both are scrolled to follow the selection (windowRows).
+func (m model) tabRowsBudget() int {
+	avail := m.height - 7
+	if avail < 3 {
+		avail = 3
+	}
+	return avail - 1
+}
+
 func (m model) renderTab(w, h int) string {
 	avail := h - 7 // header + vitals + tabs + rule + footer
 	if avail < 3 {
@@ -263,7 +300,7 @@ func (m model) renderFooter(w int) string {
 		}
 		keys = append(keys, [2]string{"l", "journal"}, [2]string{"esc", "close"})
 	default:
-		keys = [][2]string{{"1-4", "tabs"}, {"↑↓", "select"}, {"enter", "open"}}
+		keys = [][2]string{{"1-4/←→", "tabs"}, {"↑↓", "select"}, {"enter", "open"}}
 		if m.tab == tabProcs || m.tab == tabPorts {
 			keys = append(keys, [2]string{"/", "filter"})
 		}
@@ -302,6 +339,30 @@ func (m model) renderFooter(w int) string {
 		line = stAccent.Render("filter: ") + m.filter[i] + stMuted.Render("█") + "   " + line
 	}
 	return line
+}
+
+// centerCell renders a header label centered in its column — every data
+// table's headers are centered while the data rows themselves keep
+// right-aligned numbers and left-aligned text, which is what actually keeps
+// a dense table scannable; centering the values too would make it much
+// harder to compare numbers at a glance.
+func centerCell(s string, width int, style lipgloss.Style) string {
+	if width <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) > width {
+		s = truncate(s, width)
+		r = []rune(s)
+	}
+	out := style.Render(s)
+	pad := width - len(r)
+	if pad < 0 {
+		pad = 0
+	}
+	left := pad / 2
+	right := pad - left
+	return strings.Repeat(" ", left) + out + strings.Repeat(" ", right)
 }
 
 func cell(s string, width int, right bool, style lipgloss.Style) string {
