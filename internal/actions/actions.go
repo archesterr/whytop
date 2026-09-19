@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -62,6 +63,43 @@ func UnitStatus(unit string) map[string]string {
 		}
 	}
 	return m
+}
+
+// OOMKill is one kernel out-of-memory kill event.
+type OOMKill struct {
+	PID  int32
+	Name string
+}
+
+var oomRe = regexp.MustCompile(`[Kk]illed process (\d+) \(([^)]+)\)`)
+
+// RecentOOMKills scans the kernel log for OOM-killer events since the given
+// time. top, htop and iotop don't surface this at all — the only way to
+// find out a process was OOM-killed is to separately dig through dmesg or
+// journalctl -k after the fact, disconnected from whatever monitoring
+// session was open when it happened.
+func RecentOOMKills(since time.Time) []OOMKill {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "journalctl", "-k", "--no-pager", "-o", "cat",
+		"--since", since.Format("2006-01-02 15:04:05"),
+		"-g", "Out of memory|Killed process").Output()
+	if err != nil {
+		return nil
+	}
+	var kills []OOMKill
+	for _, line := range strings.Split(string(out), "\n") {
+		m := oomRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		pid, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		kills = append(kills, OOMKill{PID: int32(pid), Name: m[2]})
+	}
+	return kills
 }
 
 // Journal returns the last lines for a service, or for the PID when the

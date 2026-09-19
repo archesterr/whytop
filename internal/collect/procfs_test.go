@@ -22,6 +22,29 @@ func TestUnitOf(t *testing.T) {
 	}
 }
 
+func TestContainerOf(t *testing.T) {
+	const id = "4f8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b" // 64 hex chars
+	cases := []struct {
+		path        string
+		wantID      string
+		wantRuntime string
+	}{
+		{"/system.slice/docker-" + id + ".scope", id[:12], "docker"},
+		{"/kubepods.slice/kubepods-burstable.slice/cri-containerd-" + id + ".scope", id[:12], "containerd"},
+		{"/machine.slice/libpod-" + id + ".scope", id[:12], "podman"},
+		{"/system.slice/crio-" + id + ".scope", id[:12], "cri-o"},
+		{"/docker/" + id, id[:12], "docker"},
+		{"/system.slice/nginx.service", "", ""},
+		{"", "", ""},
+	}
+	for _, c := range cases {
+		gotID, gotRT := containerOf(c.path)
+		if gotID != c.wantID || gotRT != c.wantRuntime {
+			t.Errorf("containerOf(%q) = (%q, %q), want (%q, %q)", c.path, gotID, gotRT, c.wantID, c.wantRuntime)
+		}
+	}
+}
+
 func TestSub(t *testing.T) {
 	if got := sub(10, 4); got != 6 {
 		t.Errorf("sub(10,4) = %d, want 6", got)

@@ -54,6 +54,7 @@ type detailState struct {
 }
 
 const toastTTL = 3 * time.Second
+const oomToastTTL = 12 * time.Second // an OOM kill matters more than a routine action result
 
 type snapMsg *collect.Snapshot
 type extraMsg struct {
@@ -75,6 +76,10 @@ type clearToastMsg struct{ gen int }
 type journalMsg struct {
 	pid  int32
 	text string
+}
+type oomPollMsg struct {
+	kills []actions.OOMKill
+	at    time.Time
 }
 
 type model struct {
@@ -102,6 +107,8 @@ type model struct {
 	deepPID  int
 	deepPort int
 
+	lastOOMCheck time.Time
+
 	quitting bool
 }
 
@@ -117,19 +124,33 @@ func initialModel(opt Options) model {
 		col: collect.New(), opt: opt,
 		sortKey: "cpu", sortDir: -1,
 		deepPID: opt.PID, deepPort: opt.Port,
+		lastOOMCheck: time.Now(),
 	}
 }
 
 // Run starts the terminal UI and blocks until the user quits.
 func Run(ctx context.Context, opt Options) error {
 	m := initialModel(opt)
-	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }
 
 func (m model) Init() tea.Cmd {
-	return m.collectCmd(0)
+	return tea.Batch(m.collectCmd(0), m.pollOOMCmd(0))
+}
+
+const oomPollInterval = 5 * time.Second
+
+// pollOOMCmd checks the kernel log for OOM-kill events since the last poll.
+// top, htop and iotop don't surface this at all — finding out a process was
+// killed for memory pressure means separately digging through dmesg or
+// journalctl -k after the fact.
+func (m model) pollOOMCmd(after time.Duration) tea.Cmd {
+	since := m.lastOOMCheck
+	return tea.Tick(after, func(time.Time) tea.Msg {
+		return oomPollMsg{kills: actions.RecentOOMKills(since), at: time.Now()}
+	})
 }
 
 func (m model) collectCmd(after time.Duration) tea.Cmd {
@@ -181,6 +202,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case oomPollMsg:
+		m.lastOOMCheck = msg.at
+		next := m.pollOOMCmd(oomPollInterval)
+		if len(msg.kills) == 0 {
+			return m, next
+		}
+		k := msg.kills[len(msg.kills)-1]
+		text := fmt.Sprintf("⚠ OOM killer killed %s (PID %d)", k.Name, k.PID)
+		if len(msg.kills) > 1 {
+			text = fmt.Sprintf("⚠ OOM killer killed %d processes, most recently %s (PID %d)", len(msg.kills), k.Name, k.PID)
+		}
+		_, toastCmd := m.showToastFor(text, false, oomToastTTL)
+		return m, tea.Batch(toastCmd, next)
+
 	case actionMsg:
 		_, toastCmd := m.showToast(msg.text, msg.ok)
 		cmds := []tea.Cmd{toastCmd}
@@ -201,6 +236,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 	}
 	return m, nil
 }

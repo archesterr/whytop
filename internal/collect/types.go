@@ -58,6 +58,8 @@ type Proc struct {
 	State             string  // raw state char: R S D Z T I ...
 	Unit              string  // most specific systemd unit (.service / .scope)
 	UnitUser          bool    // unit lives under a user@.service manager
+	Container         string  // short container ID (12 chars), empty if not containerized
+	Runtime           string  // docker / containerd / cri-o / podman
 	CPU               float64 // % of one core (top style)
 	RSS               uint64
 	MemPct            float64

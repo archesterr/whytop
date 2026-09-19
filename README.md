@@ -4,6 +4,18 @@ Live troubleshooting for Linux servers, in your terminal. One static binary, run
 
 No runtime dependencies, no network exposure, no browser. Works air-gapped.
 
+## Why not just top/htop/iotop?
+
+Those tools show CPU and memory well and haven't needed to change much in 20+ years. whytop exists for the questions they were never built to answer:
+
+- **Which container is this?** On a Docker/Kubernetes host, `htop` shows a wall of PIDs with no indication of which belongs to which container — [a widely requested, still-open gap](https://github.com/htop-dev/htop/issues/1036). whytop tags every containerized process with its short container ID and runtime (docker/containerd/cri-o/podman), and you can filter by it directly.
+- **Did the OOM killer just eat my process?** Every other tool leaves you to separately dig through `dmesg`/`journalctl -k` after the fact. whytop watches the kernel log continuously and surfaces a kill the moment it happens.
+- **Why is it actually slow — CPU, memory, or I/O?** PSI (pressure stall information) is the kernel's own modern answer to that question, and none of `top`/`htop`/`iotop` show it. whytop does, always visible.
+- **What's listening on this port, and is it reachable from the network?** That's `ss`/`netstat` territory, not `top`'s. whytop flags wildcard binds (`0.0.0.0`) right in the list.
+- **What are this process's sockets, right now?** `iotop` is disk-only and needs root plus a kernel accounting flag most distros don't enable by default. whytop shows a process's own sockets, disk I/O, and its whole child tree together, and can stop/restart it without leaving the screen.
+
+The honest tradeoff: whytop is new and far less battle-tested than a tool that's shipped on every Linux box for two decades. It's built for the specific job of "something on this server is wrong, show me why," not as a `top` replacement for routine day-to-day glancing.
+
 ## Run
 
 ```bash
@@ -24,9 +36,9 @@ whytop opens no socket and needs no token — it's a local program that reads `/
 | Disks | IOPS, throughput, await, queue, utilization per device. Filesystem and inode usage. Hung network mounts flagged |
 | Network | Per-interface traffic, errors, drops. TCP retransmits, resets, new connections |
 
-Always visible: CPU, memory, I/O wait, load per core, and PSI pressure.
+Always visible: CPU, memory, I/O wait, load per core, and PSI pressure. A red banner surfaces immediately if the kernel OOM-killed a process — no need to go digging through `dmesg`.
 
-Opening a process shows its state, parent, CPU/memory/disk with children, open files against the limit, OOM score, unit status and restart count, the full child tree, and the journal.
+Opening a process shows its state, parent, CPU/memory/disk with children, open files against the limit, OOM score, container (if any), unit status and restart count, the full child tree, its own sockets, and the journal.
 
 ## Keys
 
@@ -40,7 +52,7 @@ The footer lists only the keys that work on the current screen.
 | Ports | `a` all sockets / listening only |
 | Process panel | `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `l` reload journal, `Esc` close |
 
-Every destructive action asks for confirmation.
+Every destructive action asks for confirmation. The mouse works too: click a tab to switch, click a row to open it, scroll to move the selection.
 
 ## Security
 

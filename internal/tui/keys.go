@@ -155,10 +155,14 @@ func (m *model) moveSel(delta int) {
 	m.sel[i] = rows[idx].key
 }
 
+// openSelected has a pointer receiver so it can mutate m in place (moveSel,
+// m.detail), but always returns *m dereferenced — every tea.Model this
+// package returns is a model value, never a *model, so callers (including
+// tests) never have to care which internal helper produced it.
 func (m *model) openSelected() (tea.Model, tea.Cmd) {
 	i := int(m.tab)
 	if i > 1 {
-		return m, nil
+		return *m, nil
 	}
 	rows := m.rowKeys()
 	found := false
@@ -173,13 +177,13 @@ func (m *model) openSelected() (tea.Model, tea.Cmd) {
 		// No row selected yet (fresh tab, cleared filter, ...): select
 		// the first row instead of guessing what Enter should open.
 		m.moveSel(0)
-		return m, nil
+		return *m, nil
 	}
 	if pid <= 0 {
 		return m.showToast("The owner of this socket is hidden. Run whytop with sudo.", false)
 	}
 	m.detail = &detailState{pid: pid}
-	return m, tea.Batch(m.loadExtraCmd(pid), m.loadJournalCmd(pid))
+	return *m, tea.Batch(m.loadExtraCmd(pid), m.loadJournalCmd(pid))
 }
 
 func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -253,6 +257,10 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // showToast sets a toast message with an auto-clear timer, for feedback that
 // doesn't come from an async action (e.g. an immediate validation failure).
 func (m *model) showToast(text string, ok bool) (tea.Model, tea.Cmd) {
+	return m.showToastFor(text, ok, toastTTL)
+}
+
+func (m *model) showToastFor(text string, ok bool, ttl time.Duration) (tea.Model, tea.Cmd) {
 	m.toast = text
 	if ok {
 		m.toastStyle = stToastOK.Render
@@ -261,7 +269,7 @@ func (m *model) showToast(text string, ok bool) (tea.Model, tea.Cmd) {
 	}
 	m.toastGen++
 	gen := m.toastGen
-	return m, tea.Tick(toastTTL, func(time.Time) tea.Msg { return clearToastMsg{gen: gen} })
+	return *m, tea.Tick(ttl, func(time.Time) tea.Msg { return clearToastMsg{gen: gen} })
 }
 
 // currentTree returns the process (with its descendants) rooted at the

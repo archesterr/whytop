@@ -2,6 +2,7 @@ package actions
 
 import (
 	"os"
+	"strconv"
 	"syscall"
 	"testing"
 )
@@ -22,6 +23,34 @@ func TestSignalRefusesUnsafeTargets(t *testing.T) {
 				t.Fatalf("Signal(%d) = nil, want refusal", c.pid)
 			}
 		})
+	}
+}
+
+func TestOOMRegexParsesRealKernelMessageVariants(t *testing.T) {
+	cases := []struct {
+		line     string
+		wantPID  int32
+		wantName string
+	}{
+		{"Out of memory: Killed process 12345 (nginx) total-vm:123456kB, anon-rss:98765kB", 12345, "nginx"},
+		{"Memory cgroup out of memory: Killed process 987 (java) score 1000 or sacrifice child", 987, "java"},
+		{"oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=/,mems_allowed=0,oom_memcg=/,task_memcg=/,task=python3,pid=42,uid=0", 0, ""}, // no "Killed process N (name)" here, not matched by design
+	}
+	for _, c := range cases {
+		m := oomRe.FindStringSubmatch(c.line)
+		if c.wantPID == 0 {
+			if m != nil {
+				t.Errorf("line %q: expected no match, got %v", c.line, m)
+			}
+			continue
+		}
+		if m == nil {
+			t.Fatalf("line %q: expected a match, got none", c.line)
+		}
+		pid, _ := strconv.Atoi(m[1])
+		if int32(pid) != c.wantPID || m[2] != c.wantName {
+			t.Errorf("line %q: got pid=%d name=%q, want pid=%d name=%q", c.line, pid, m[2], c.wantPID, c.wantName)
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -71,7 +72,9 @@ func (c *Collector) collectProcs(s *Snapshot, elapsed float64) {
 			Cmdline: readCmdline(pid),
 			User:    c.userOf(pid),
 		}
-		p.Unit, p.UnitUser = unitOf(cgroupPath(pid))
+		cg := cgroupPath(pid)
+		p.Unit, p.UnitUser = unitOf(cg)
+		p.Container, p.Runtime = containerOf(cg)
 		if s.Mem.Total > 0 {
 			p.MemPct = float64(st.rss) / float64(s.Mem.Total) * 100
 		}
@@ -211,6 +214,42 @@ func cgroupPath(pid int32) string {
 		}
 	}
 	return legacy
+}
+
+var containerRe = regexp.MustCompile(`(?:^|[-/])(docker|libpod|cri-containerd|crio)-([0-9a-f]{64})\.scope$|/docker/([0-9a-f]{64})(?:$|/)`)
+
+// containerOf extracts a short container ID and runtime name from a cgroup
+// path, e.g.:
+//
+//	/system.slice/docker-4f8b...64hex....scope        -> (4f8b8b8b8b8b, docker)
+//	/kubepods.slice/.../cri-containerd-9a2c...64hex.scope -> (9a2c9a2c9a2c, containerd)
+//	/machine.slice/libpod-<64hex>.scope               -> (..., podman)
+//	/docker/<64hex>                                   -> (..., docker) (cgroup v1)
+//
+// top and htop show every containerized process as an indistinguishable PID
+// among hundreds of others on the host, with nothing tying it back to the
+// container that owns it — this is one of the most consistently requested,
+// unaddressed gaps against htop for anyone running Docker or Kubernetes.
+func containerOf(path string) (id, runtime string) {
+	m := containerRe.FindStringSubmatch(path)
+	if m == nil {
+		return "", ""
+	}
+	full := m[2]
+	rt := m[1]
+	if full == "" {
+		full = m[3]
+		rt = "docker"
+	}
+	switch rt {
+	case "cri-containerd":
+		rt = "containerd"
+	case "crio":
+		rt = "cri-o"
+	case "libpod":
+		rt = "podman"
+	}
+	return full[:12], rt
 }
 
 // unitOf returns the most specific systemd unit in a cgroup path, e.g.

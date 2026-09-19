@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -72,6 +73,9 @@ func (m model) renderDetail(w, h int) string {
 		{"Open files", fds},
 		{"Unit", unitName(p.Unit) + unitStatus},
 	}
+	if p.Container != "" {
+		facts = append(facts, [2]string{"Container", stAccent.Render(p.Container) + " " + stMuted.Render(p.Runtime)})
+	}
 	if d.loaded && d.extra.OOMScore != "" {
 		facts = append(facts, [2]string{"OOM score", d.extra.OOMScore + " (adjust " + d.extra.OOMAdj + ")"})
 	}
@@ -103,21 +107,78 @@ func (m model) renderDetail(w, h int) string {
 	}
 	b.WriteString(stFaint.Render(restartLine) + "\n\n")
 
-	treeH := (h - 16) / 2
+	bottom := max0(h - 16)
+	sockH := bottom / 4
+	if sockH < 3 {
+		sockH = 3
+	}
+	treeH := (bottom - sockH) / 2
 	if treeH < 3 {
 		treeH = 3
 	}
-	b.WriteString(stHeader.Render(fmt.Sprintf("PROCESS TREE (%d)", len(nodes))) + "\n")
-	b.WriteString(m.renderTree(nodes, w, treeH) + "\n")
-
-	logH := h - 16 - treeH
+	logH := max0(bottom - sockH - treeH)
 	if logH < 3 {
 		logH = 3
 	}
+
+	b.WriteString(stHeader.Render(fmt.Sprintf("PROCESS TREE (%d)", len(nodes))) + "\n")
+	b.WriteString(m.renderTree(nodes, w, treeH) + "\n")
+
+	b.WriteString("\n" + stHeader.Render("SOCKETS") + "\n")
+	b.WriteString(m.renderSockets(nodes, w, sockH) + "\n")
+
 	b.WriteString("\n" + stHeader.Render("JOURNAL") + "\n")
 	b.WriteString(renderJournal(d.journal, w, logH))
 
 	return b.String()
+}
+
+// renderSockets lists the listening/established sockets owned by the
+// process or any of its children — data whytop already collects for this
+// view but, until now, never displayed. htop/top show nothing about a
+// process's network activity at all; iotop is disk-only.
+func (m model) renderSockets(nodes []collect.Proc, w, h int) string {
+	s := m.snap
+	if !s.ConnsCollected {
+		return stMuted.Render("Reading sockets…")
+	}
+	pids := make(map[int32]bool, len(nodes))
+	for _, n := range nodes {
+		pids[n.PID] = true
+	}
+	var conns []collect.Conn
+	for _, c := range s.Conns {
+		if pids[c.PID] {
+			conns = append(conns, c)
+		}
+	}
+	if len(conns) == 0 {
+		msg := "No network sockets."
+		if !s.Root {
+			msg = "No sockets visible. Run whytop with sudo to see sockets of other users."
+		}
+		return stMuted.Render(msg)
+	}
+	sort.Slice(conns, func(i, j int) bool {
+		li, lj := conns[i].Listening(), conns[j].Listening()
+		if li != lj {
+			return li
+		}
+		return conns[i].LPort < conns[j].LPort
+	})
+	header := cell("PORT", 6, true, stHeader) + " " + cell("PROTO", 6, false, stHeader) + " " +
+		cell("STATE", 12, false, stHeader) + " " + cell("REMOTE", w-28, false, stHeader)
+	lines := capRows(conns, h-1, func(c collect.Conn) string {
+		stStyle := stPlain
+		if c.State == "LISTEN" {
+			stStyle = stOK
+		} else if c.State == "CLOSE_WAIT" {
+			stStyle = stCrit
+		}
+		return cell(strconv.Itoa(int(c.LPort)), 6, true, stPlain.Bold(true)) + " " + cell(c.Proto, 6, false, stMuted) + " " +
+			cell(c.State, 12, false, stStyle) + " " + cell(c.Remote, max0(w-28), false, stMuted)
+	})
+	return header + "\n" + strings.Join(lines, "\n")
 }
 
 func ioCellText(hidden bool, v float64) string {
