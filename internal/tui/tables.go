@@ -212,7 +212,7 @@ func (m model) renderPorts(w, h int) string {
 		proc, ok := m.procByPID(c.PID)
 		name := withBG(stFaint, sel).Render("hidden")
 		if ok {
-			name = withBG(stPlain.Bold(true), sel).Render(truncate(proc.Name, 16))
+			name = withBG(stPlain.Bold(true), sel).Render(truncate(safeText(proc.Name), 16))
 		}
 		addrStyle := stPlain
 		addr := c.LocalIP
