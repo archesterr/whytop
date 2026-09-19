@@ -170,9 +170,8 @@ func (m *model) openSelected() (tea.Model, tea.Cmd) {
 		}
 	}
 	if !found {
-		// No row selected yet (fresh tab, cleared filter, ...): select the
-		// first row instead of guessing what Enter should open, matching the
-		// web UI's move(0)-then-return behavior.
+		// No row selected yet (fresh tab, cleared filter, ...): select
+		// the first row instead of guessing what Enter should open.
 		m.moveSel(0)
 		return m, nil
 	}
