@@ -62,6 +62,7 @@ type Proc struct {
 	RSS               uint64
 	MemPct            float64
 	ReadBps, WriteBps float64 // block-layer bytes/s (root needed for other users)
+	IOHidden          bool    // true when /proc/<pid>/io was unreadable (not root, other user)
 	Threads           int32
 	Started           time.Time
 }

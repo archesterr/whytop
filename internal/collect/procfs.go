@@ -29,6 +29,7 @@ type procKey struct {
 type procPrev struct {
 	ticks  uint64
 	rb, wb uint64
+	ioOK   bool
 }
 
 type rawStat struct {
@@ -76,12 +77,15 @@ func (c *Collector) collectProcs(s *Snapshot, elapsed float64) {
 		}
 
 		cur := procPrev{ticks: st.utime + st.stime}
-		cur.rb, cur.wb = readIO(pid)
+		cur.rb, cur.wb, cur.ioOK = readIO(pid)
+		p.IOHidden = !cur.ioOK
 		key := procKey{pid: pid, start: st.start}
 		if prev, ok := c.prevProc[key]; ok && elapsed > 0 {
 			p.CPU = float64(sub(cur.ticks, prev.ticks)) / clkTck / elapsed * 100
-			p.ReadBps = float64(sub(cur.rb, prev.rb)) / elapsed
-			p.WriteBps = float64(sub(cur.wb, prev.wb)) / elapsed
+			if cur.ioOK && prev.ioOK {
+				p.ReadBps = float64(sub(cur.rb, prev.rb)) / elapsed
+				p.WriteBps = float64(sub(cur.wb, prev.wb)) / elapsed
+			}
 		}
 		next[key] = cur
 
@@ -131,15 +135,17 @@ func readCmdline(pid int32) string {
 	return strings.TrimSpace(strings.ReplaceAll(string(b), "\x00", " "))
 }
 
-// readIO returns block-layer read/write bytes. Needs root for other users.
-func readIO(pid int32) (rb, wb uint64) {
+// readIO returns block-layer read/write bytes. Needs root for other users;
+// ok is false when the file couldn't be read, so callers can tell "unknown"
+// (permission denied) apart from "genuinely zero".
+func readIO(pid int32) (rb, wb uint64, ok bool) {
 	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/io", pid))
 	if err != nil {
-		return 0, 0
+		return 0, 0, false
 	}
 	for _, line := range strings.Split(string(b), "\n") {
-		k, v, ok := strings.Cut(line, ": ")
-		if !ok {
+		k, v, cut := strings.Cut(line, ": ")
+		if !cut {
 			continue
 		}
 		switch k {
@@ -149,7 +155,7 @@ func readIO(pid int32) (rb, wb uint64) {
 			wb, _ = strconv.ParseUint(v, 10, 64)
 		}
 	}
-	return rb, wb
+	return rb, wb, true
 }
 
 func (c *Collector) userOf(pid int32) string {
@@ -161,8 +167,9 @@ func (c *Collector) userOf(pid int32) string {
 	if !ok {
 		return ""
 	}
-	if name, ok := c.users[st.Uid]; ok {
-		return name
+	now := time.Now()
+	if ent, ok := c.users[st.Uid]; ok && now.Sub(ent.at) < userCacheTTL {
+		return ent.name
 	}
 	name := strconv.FormatUint(uint64(st.Uid), 10)
 	if u, err := user.LookupId(name); err == nil {
@@ -170,7 +177,7 @@ func (c *Collector) userOf(pid int32) string {
 	} else if n := getentUser(name); n != "" {
 		name = n // LDAP/SSSD users are not in /etc/passwd
 	}
-	c.users[st.Uid] = name
+	c.users[st.Uid] = userEnt{name: name, at: now}
 	return name
 }
 

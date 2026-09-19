@@ -53,8 +53,17 @@ Every destructive action asks for confirmation.
 
 - Binds to `127.0.0.1` by default on a random port.
 - Every request needs the random token printed at startup; API calls send it in a header, which also blocks cross-site requests.
-- Strict CSP, no external resources, no referrer.
-- Refuses to signal PID 1 or restart scopes and user sessions.
+- Strict CSP built from hashes of the page's own inline script/style (no `unsafe-inline`), no external resources, no referrer.
+- `X-Frame-Options`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy` and a locked-down `Permissions-Policy` are set on every response.
+- Server timeouts (read/write/idle) are set to resist slow-client style connection exhaustion.
+- Refuses to signal PID 1, itself, or restart scopes and user sessions.
+- Every destructive action (signal, restart) and every rejected request is written to the server's log with the source address, for audit.
+
+Root is only needed for full visibility (other users' sockets, disk I/O, open files). Prefer capabilities over full root where your kernel supports it:
+
+```bash
+sudo setcap cap_sys_ptrace,cap_dac_read_search,cap_sys_admin+ep ./whytop
+```
 
 ## Build
 

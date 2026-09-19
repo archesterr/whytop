@@ -5,8 +5,10 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	_ "embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -15,6 +17,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +31,31 @@ import (
 
 //go:embed static/index.html
 var indexHTML []byte
+
+// csp is computed from the embedded page itself (CIS/OWASP: avoid
+// 'unsafe-inline'; hash the exact inline script/style instead of trusting
+// them by location). It is derived at init, not hand-maintained, so it can
+// never drift from the actual page content.
+var csp = buildCSP(indexHTML)
+
+var inlineBlockRe = regexp.MustCompile(`(?s)<(script|style)>(.*?)</(?:script|style)>`)
+
+func buildCSP(html []byte) string {
+	var scriptSrc, styleSrc []string
+	for _, m := range inlineBlockRe.FindAllSubmatch(html, -1) {
+		sum := sha256.Sum256(m[2])
+		hash := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+		if string(m[1]) == "script" {
+			scriptSrc = append(scriptSrc, hash)
+		} else {
+			styleSrc = append(styleSrc, hash)
+		}
+	}
+	return "default-src 'none'; " +
+		"script-src " + strings.Join(scriptSrc, " ") + "; " +
+		"style-src " + strings.Join(styleSrc, " ") + "; " +
+		"connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+}
 
 type Options struct {
 	Listen   string
@@ -75,7 +103,13 @@ func Run(ctx context.Context, opt Options) error {
 	mux.HandleFunc("POST /api/signal", s.auth(s.handleSignal))
 	mux.HandleFunc("POST /api/restart", s.auth(s.handleRestart))
 
-	srv := &http.Server{Handler: withHeaders(mux), ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{
+		Handler:           withHeaders(mux),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second, // journal/systemctl calls run up to 5s server-side
+		IdleTimeout:       60 * time.Second,
+	}
 	go s.loop(ctx)
 	go func() {
 		<-ctx.Done()
@@ -272,9 +306,11 @@ func (s *Server) handleSignal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := actions.Signal(req.PID, sig); err != nil {
+		log.Printf("audit: signal %s pid=%d from %s failed: %v", req.Signal, req.PID, r.RemoteAddr, err)
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
+	log.Printf("audit: sent %s to pid=%d from %s", req.Signal, req.PID, r.RemoteAddr)
 	s.poke()
 	writeJSON(w, map[string]any{"ok": true})
 }
@@ -297,9 +333,11 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := actions.RestartUnit(p.Unit); err != nil {
+		log.Printf("audit: restart %s (pid=%d) from %s failed: %v", p.Unit, req.PID, r.RemoteAddr, err)
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	log.Printf("audit: restarted %s (pid=%d) from %s", p.Unit, req.PID, r.RemoteAddr)
 	st := actions.UnitStatus(p.Unit)
 	mainPID, _ := strconv.Atoi(st["MainPID"])
 	s.poke()
@@ -317,6 +355,7 @@ func (s *Server) validToken(t string) bool {
 func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.validToken(r.Header.Get("X-Whytop-Token")) {
+			log.Printf("audit: denied %s %s from %s: bad or missing token", r.Method, r.URL.Path, r.RemoteAddr)
 			writeErr(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
@@ -327,10 +366,14 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 func withHeaders(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()
-		hd.Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		hd.Set("Content-Security-Policy", csp)
 		hd.Set("X-Content-Type-Options", "nosniff")
+		hd.Set("X-Frame-Options", "DENY")
 		hd.Set("Referrer-Policy", "no-referrer")
 		hd.Set("Cache-Control", "no-store")
+		hd.Set("Cross-Origin-Opener-Policy", "same-origin")
+		hd.Set("Cross-Origin-Resource-Policy", "same-origin")
+		hd.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=(), usb=(), payment=()")
 		h.ServeHTTP(w, r)
 	})
 }

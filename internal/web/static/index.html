@@ -242,6 +242,8 @@ function bytes(n) {
   return (n < 10 ? n.toFixed(1) : Math.round(n)) + ' ' + u[i];
 }
 const rate = n => (Number(n) || 0) < 1 ? '–' : bytes(n) + '/s';
+const HIDDEN_IO = '<span class="dim" title="Run whytop with sudo to see I/O for other users’ processes">hidden</span>';
+const ioRate = (p, n) => p.IOHidden ? HIDDEN_IO : rate(n);
 const f1 = n => (Number(n) || 0) < 0.05 ? '0' : Number(n).toFixed(1);
 const lvl = (v, w, c) => v >= c ? 'crit' : v >= w ? 'warn' : '';
 const unitName = u => (u || '').replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
@@ -352,7 +354,7 @@ function renderVitals() {
   $('#meta').innerHTML = spans(`up ${dur(s.Uptime / 1e9)}`, `${cores} cores`, `${s.Procs.length} processes`,
     zombies && `<span class="warn">${zombies} zombie${zombies > 1 ? 's' : ''}</span>`);
   $('#root-note').hidden = s.Root;
-  vital('cpu', 'CPU', f1(c.Busy) + '%', spans(`user ${f1(c.User)}`, `system ${f1(c.System)}`, `steal ${f1(c.Steal)}`),
+  vital('cpu', 'CPU', f1(c.Busy) + '%', spans(`user ${f1(c.User)}`, `system ${f1(c.System)}`, c.Steal >= 0.05 && `steal ${f1(c.Steal)}`),
     S.hist.cpu, 100, lvl(c.Busy, 70, 90));
   vital('mem', 'Memory', f1(m.UsedPct) + '%', spans(`${bytes(m.Used)} of ${bytes(m.Total)}`, m.SwapTotal && `swap ${f1(m.SwapPct)}%`),
     S.hist.mem, 100, lvl(m.UsedPct, 80, 92));
@@ -433,7 +435,7 @@ function renderProcs() {
       `<td class="num">${p.PID}</td><td class="user">${esc(p.User)}</td>` +
       `<td><span class="st st-${esc(p.State)}" title="${STATES[p.State] || ''}">${esc(p.State)}</span></td>` +
       `<td class="num ${lvl(p.CPU, 50, 90)}">${f1(p.CPU)}</td><td class="num" title="${f1(p.MemPct)}% of memory">${bytes(p.RSS)}</td>` +
-      `<td class="num">${rate(p.ReadBps)}</td><td class="num">${rate(p.WriteBps)}</td><td class="num">${p.Threads}</td>` +
+      `<td class="num">${ioRate(p, p.ReadBps)}</td><td class="num">${ioRate(p, p.WriteBps)}</td><td class="num">${p.Threads}</td>` +
       `<td class="unit" title="${esc(u)}">${esc(u)}</td><td class="cmd" title="${esc(cmd)}">${esc(cmd)}</td></tr>`;
   }).join('');
   setMain(`<table class="rows"><thead><tr>${th('pid', 'PID', 'num')}${th('user', 'User')}${th('state', 'State')}${th('cpu', 'CPU %', 'num')}` +
@@ -617,8 +619,8 @@ function renderDrawer() {
     ['Started', `${dur((Date.now() - Date.parse(p.Started)) / 1000)} ago <span class="dim">${new Date(p.Started).toLocaleString()}</span>`],
     ['CPU', `${f1(p.CPU)}%` + withKids(f1(cpu) + '%')],
     ['Memory', bytes(p.RSS) + withKids(bytes(rss))],
-    ['Disk read', rate(p.ReadBps) + withKids(rate(rd))],
-    ['Disk write', rate(p.WriteBps) + withKids(rate(wr))],
+    ['Disk read', ioRate(p, p.ReadBps) + withKids(rate(rd))],
+    ['Disk write', ioRate(p, p.WriteBps) + withKids(rate(wr))],
     ['Threads', p.Threads],
     ['Open files', fds],
     ['OOM score', loaded && x.OOMScore ? `${esc(x.OOMScore)} <span class="dim">adjust ${esc(x.OOMAdj)}</span>` : '…'],
@@ -640,7 +642,7 @@ function renderDrawer() {
   const trows = nodes.map(([q, depth]) => `<tr data-key="${q.PID}"${String(q.PID) === tsel ? ' class="sel"' : ''}>` +
     `<td class="num">${q.PID}</td><td><span class="st st-${esc(q.State)}">${esc(q.State)}</span></td>` +
     `<td class="num ${lvl(q.CPU, 50, 90)}">${f1(q.CPU)}</td><td class="num">${bytes(q.RSS)}</td>` +
-    `<td class="num">${rate(q.ReadBps)}</td><td class="num">${rate(q.WriteBps)}</td>` +
+    `<td class="num">${ioRate(q, q.ReadBps)}</td><td class="num">${ioRate(q, q.WriteBps)}</td>` +
     `<td class="cmd" style="padding-left:${10 + depth * 16}px" title="${esc(cmdOf(q))}">${depth ? '<span class="branch">└</span> ' : ''}${esc(cmdOf(q))}</td></tr>`).join('');
 
   let socks;
