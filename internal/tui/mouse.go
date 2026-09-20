@@ -12,6 +12,7 @@ import (
 // `avail := h-8` budget also assumes. Rows 6+ are the current tab's own
 // header + data rows.
 const (
+	statusRow     = 3
 	tabBarRow     = 4
 	listHeaderRow = 6
 	listFirstRow  = 7
@@ -70,6 +71,9 @@ func (m model) handleClick(x, y int) (tea.Model, tea.Cmd) {
 		m.editing = false
 	}
 
+	if y == statusRow {
+		return m.clickFinding(x)
+	}
 	if y == tabBarRow {
 		return m.clickTab(x)
 	}
@@ -102,6 +106,18 @@ func (m model) clickHeader(x int) (tea.Model, tea.Cmd) {
 		m.sortKey, m.sortDir = key, defaultSortDir(key)
 	}
 	return m, nil
+}
+
+// clickFinding makes the status line what it looks like: a link. Clicking a
+// finding goes to the rows it is about.
+func (m *model) clickFinding(x int) (tea.Model, tea.Cmd) {
+	regions, _ := statusLayout(m.findings(), m.contentW())
+	for _, r := range regions {
+		if x >= r.x0 && x < r.x1 {
+			return m.applyJump(r.f)
+		}
+	}
+	return *m, nil
 }
 
 func (m model) clickTab(x int) (tea.Model, tea.Cmd) {

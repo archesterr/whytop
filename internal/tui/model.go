@@ -119,6 +119,7 @@ type model struct {
 	showKernel bool
 	sel        [2]string // selected row key, indexed by tabProcs/tabPorts
 	unitSel    string    // selected unit name, for the Units tab
+	findingSel int       // which status-line finding g jumps to next
 
 	detail  *detailState
 	confirm *confirmState

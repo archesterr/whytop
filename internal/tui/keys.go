@@ -130,6 +130,17 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.moveSel(1)
 		}
+	case "g":
+		return m.jumpToFinding()
+	case "esc":
+		// A jump leaves a filter behind on purpose, so esc has to be able to
+		// take it off again without opening the filter editor first.
+		if m.tab == tabProcs || m.tab == tabPorts {
+			if m.filter[m.tab] != "" {
+				m.filter[m.tab] = ""
+				return m.showToast("Filter cleared.", true)
+			}
+		}
 	case "enter":
 		return m.openSelected()
 	case "e":
