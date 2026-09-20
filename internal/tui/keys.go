@@ -41,21 +41,20 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	i := int(m.tab)
 	switch msg.Type {
 	case tea.KeyEsc:
-		m.filter[i] = ""
+		m.filter = ""
 		m.editing = false
 	case tea.KeyEnter:
 		m.editing = false
 	case tea.KeyBackspace:
-		if s := m.filter[i]; s != "" {
-			m.filter[i] = s[:len(s)-1]
+		if r := []rune(m.filter); len(r) > 0 {
+			m.filter = string(r[:len(r)-1])
 		}
 	case tea.KeyRunes:
-		m.filter[i] += string(msg.Runes)
+		m.filter += string(msg.Runes)
 	case tea.KeySpace:
-		m.filter[i] += " "
+		m.filter += " "
 	}
 	return m, nil
 }
@@ -65,68 +64,42 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		m.quitting = true
 		return m, tea.Quit
-	case "1":
-		m.tab = tabProcs
-	case "2":
-		m.tab = tabPorts
-	case "3":
-		m.tab = tabDisks
-	case "4":
-		m.tab = tabNet
-	case "right", "tab", "l":
-		m.tab = (m.tab + 1) % numTabs
-	case "left", "shift+tab", "h":
-		m.tab = (m.tab + numTabs - 1) % numTabs
 	case "p":
 		m.paused = !m.paused
 		if !m.paused {
 			return m, m.collectCmd(0)
 		}
 	case "/":
-		if m.tab == tabProcs || m.tab == tabPorts {
-			m.editing = true
-		}
+		m.editing = true
 	case "s":
-		if m.tab == tabProcs {
-			i := 0
-			for idx, k := range procSortCycle {
-				if k == m.sortKey {
-					i = idx
-				}
+		i := 0
+		for idx, k := range procSortCycle {
+			if k == m.sortKey {
+				i = idx
 			}
-			m.sortKey = procSortCycle[(i+1)%len(procSortCycle)]
-			m.sortDir = defaultSortDir(m.sortKey)
-			m.relock()
 		}
+		m.sortKey = procSortCycle[(i+1)%len(procSortCycle)]
+		m.sortDir = defaultSortDir(m.sortKey)
+		m.relock()
 	case "S":
-		if m.tab == tabProcs {
-			m.sortDir = -m.sortDir
-			if m.sortDir == 0 {
-				m.sortDir = -defaultSortDir(m.sortKey)
-			}
-			m.relock()
+		m.sortDir = -m.sortDir
+		if m.sortDir == 0 {
+			m.sortDir = -defaultSortDir(m.sortKey)
 		}
+		m.relock()
 	case "L":
-		if m.tab == tabProcs {
-			m.lockOrder = !m.lockOrder
-			m.relock()
-			if m.lockOrder {
-				return m.showToast("Order locked: rows stay put while their numbers change. L unlocks.", true)
-			}
-			return m.showToast("Order live again: rows re-sort as usage changes.", true)
+		m.lockOrder = !m.lockOrder
+		m.relock()
+		if m.lockOrder {
+			return m.showToast("Order locked: rows stay put while their numbers change. L unlocks.", true)
 		}
-	case "a":
-		if m.tab == tabPorts {
-			m.allConns = !m.allConns
-		}
+		return m.showToast("Order live again: rows re-sort as usage changes.", true)
 	case "K":
-		if m.tab == tabProcs {
-			m.showKernel = !m.showKernel
-			if m.showKernel {
-				return m.showToast("Showing kernel threads ([kworker/…] and friends). K hides them again.", true)
-			}
-			return m.showToast("Kernel threads hidden. K shows them again.", true)
+		m.showKernel = !m.showKernel
+		if m.showKernel {
+			return m.showToast("Showing kernel threads ([kworker/…] and friends). K hides them again.", true)
 		}
+		return m.showToast("Kernel threads hidden. K shows them again.", true)
 	case "up", "k":
 		m.moveSel(-1)
 	case "down", "j":
@@ -136,11 +109,9 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		// A jump leaves a filter behind on purpose, so esc has to be able to
 		// take it off again without opening the filter editor first.
-		if m.tab == tabProcs || m.tab == tabPorts {
-			if m.filter[m.tab] != "" {
-				m.filter[m.tab] = ""
-				return m.showToast("Filter cleared.", true)
-			}
+		if m.filter != "" {
+			m.filter = ""
+			return m.showToast("Filter cleared.", true)
 		}
 	case "enter":
 		return m.openSelected()
@@ -148,41 +119,25 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// rowKeys returns the ordered (key, pid) pairs for the current tab's list,
-// built fresh from the same filter/sort state the table renders with.
+// rowKeys returns the ordered (key, pid) pairs for the list, built fresh
+// from the same filter/sort state the table renders with.
 func (m model) rowKeys() []rowRef {
-	switch m.tab {
-	case tabProcs:
-		procs := m.procRows()
-		out := make([]rowRef, len(procs))
-		for i, p := range procs {
-			out[i] = rowRef{key: strconv.Itoa(int(p.PID)), pid: p.PID}
-		}
-		return out
-	case tabPorts:
-		conns := m.portRows()
-		out := make([]rowRef, len(conns))
-		for i, c := range conns {
-			out[i] = rowRef{key: connKey(c), pid: c.PID}
-		}
-		return out
-	default:
-		return nil
+	procs := m.procRows()
+	out := make([]rowRef, len(procs))
+	for i, p := range procs {
+		out[i] = rowRef{key: strconv.Itoa(int(p.PID)), pid: p.PID}
 	}
+	return out
 }
 
 func (m *model) moveSel(delta int) {
-	i := int(m.tab)
-	if i > 1 {
-		return
-	}
 	rows := m.rowKeys()
 	if len(rows) == 0 {
 		return
 	}
 	idx := 0
 	for j, r := range rows {
-		if r.key == m.sel[i] {
+		if r.key == m.sel {
 			idx = j
 			break
 		}
@@ -194,7 +149,7 @@ func (m *model) moveSel(delta int) {
 	if idx >= len(rows) {
 		idx = len(rows) - 1
 	}
-	m.sel[i] = rows[idx].key
+	m.sel = rows[idx].key
 }
 
 // openSelected has a pointer receiver so it can mutate m in place (moveSel,
@@ -202,15 +157,11 @@ func (m *model) moveSel(delta int) {
 // package returns is a model value, never a *model, so callers (including
 // tests) never have to care which internal helper produced it.
 func (m *model) openSelected() (tea.Model, tea.Cmd) {
-	i := int(m.tab)
-	if i > 1 {
-		return *m, nil
-	}
 	rows := m.rowKeys()
 	found := false
 	var pid int32
 	for _, r := range rows {
-		if r.key == m.sel[i] {
+		if r.key == m.sel {
 			pid, found = r.pid, true
 			break
 		}

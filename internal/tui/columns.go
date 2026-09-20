@@ -1,9 +1,8 @@
 package tui
 
-// procCol is one column of the Processes table. The renderer, the clickable
+// procCol is one column of the process table. The renderer, the clickable
 // header and the sort comparator are all built from this one list, so a
-// column you click can never drift from the column drawn above the rows —
-// the same reason tabRegions exists for the tab bar.
+// column you click can never drift from the column drawn above the rows.
 type procCol struct {
 	key   string // sort key; "" for the selection gutter, which isn't sortable
 	title string
@@ -17,19 +16,59 @@ type procCol struct {
 // shows them the least interesting end of the list.
 func numericSort(key string) bool {
 	switch key {
-	case "cpu", "mem", "read", "write", "io":
+	case "cpu", "mem", "read", "write", "io", "net", "rx", "tx", "port":
 		return true
 	}
 	return false
 }
 
-const procUnitW = 16
+// Optional columns in the order they are drawn, each with the order it is
+// given up in as the terminal narrows (1 goes first).
+//
+// Everything here has to earn its width against COMMAND, which is what
+// people are usually reading. PORT survives longest of the four: it is the
+// reason the Ports tab is gone, and "who has 8080" is a question you cannot
+// answer any other way from this screen.
+var procOptional = []struct {
+	col  procCol
+	drop int
+}{
+	{procCol{key: "port", title: "PORT", w: 7, right: true}, 4},
+	{procCol{key: "rx", title: "NET↓", w: 9, right: true}, 3},
+	{procCol{key: "tx", title: "NET↑", w: 9, right: true}, 2},
+	{procCol{key: "unit", title: "UNIT", w: 16}, 1},
+}
 
-// procColumns lays out the Processes table for a given width. The Unit column
-// is the first to go on a narrow terminal, rather than squeezing Command down
-// to an unreadable sliver to keep every column present.
-func procColumns(w int) []procCol {
-	cols := []procCol{
+// procColumns lays out the process table for a given width.
+//
+// Every column but COMMAND has a fixed width; COMMAND takes whatever is
+// left, which is why the table fills the terminal exactly. When there isn't
+// enough left for COMMAND to be readable, optional columns are dropped in
+// the order above rather than squeezing it to an unusable sliver.
+// netCols says whether the network columns are worth their width: on a host
+// where per-process traffic can't be measured at all they would be two
+// columns of "?", and the space belongs to COMMAND instead.
+func (m model) netCols() bool {
+	if m.snap == nil {
+		return false
+	}
+	for _, p := range m.snap.Procs {
+		if p.NetKnown {
+			return true
+		}
+	}
+	return false
+}
+
+// cols is procColumns for this model — the single place that decides which
+// columns exist, so the header, the rows and click hit-testing can't
+// disagree about it.
+func (m model) cols(w int) []procCol {
+	return procColumns(w, m.netCols())
+}
+
+func procColumns(w int, net bool) []procCol {
+	base := []procCol{
 		{key: "", title: "", w: gutterW},
 		{key: "pid", title: "PID", w: 6, right: true},
 		{key: "user", title: "USER", w: 11},
@@ -39,33 +78,38 @@ func procColumns(w int) []procCol {
 		{key: "read", title: "READ", w: 9, right: true},
 		{key: "write", title: "WRITE", w: 9, right: true},
 	}
-	fixed := 0
-	for _, c := range cols {
-		fixed += c.w
-	}
 
-	// One separator between every pair of columns: n columns, n-1 gaps.
-	cmdW := w - fixed - procUnitW - (len(cols)+1)*sepW
-	if showUnit := cmdW >= 18; showUnit {
-		cols = append(cols, procCol{key: "unit", title: "UNIT", w: procUnitW})
-	} else {
-		cmdW = w - fixed - len(cols)*sepW
+	// Try the full set, then give up one optional column at a time until
+	// COMMAND has room to be worth reading.
+	const minCmdW = 18
+	for give := 0; give <= len(procOptional); give++ {
+		cols := append([]procCol(nil), base...)
+		for _, o := range procOptional {
+			if o.drop <= give {
+				continue
+			}
+			if !net && (o.col.key == "rx" || o.col.key == "tx") {
+				continue
+			}
+			cols = append(cols, o.col)
+		}
+		fixed := 0
+		for _, c := range cols {
+			fixed += c.w
+		}
+		cmdW := w - fixed - len(cols)*sepW
+		if cmdW >= minCmdW || give == len(procOptional) {
+			if cmdW < 12 {
+				cmdW = 12
+			}
+			return append(cols, procCol{key: "command", title: "COMMAND", w: cmdW})
+		}
 	}
-	if cmdW < 12 {
-		cmdW = 12
-	}
-	return append(cols, procCol{key: "command", title: "COMMAND", w: cmdW})
+	return nil // unreachable: the loop always returns on its last iteration
 }
 
 // nameColW sizes a table's leading name column: it takes the width left over
 // after the value columns, but never more than max.
-//
-// Without the cap, a lone `w - everythingElse` puts all of a wide terminal's
-// slack into one cell — "eth0" rendered in 66 columns. Spreading that slack
-// across the value columns instead is no better: right-aligned numbers end up
-// marooned at the far edge of cells three times wider than their contents.
-// Capping lets the table simply end, leaving a margin, which is what the
-// block-devices table has always done and the one that actually reads well.
 func nameColW(w, max int, vals []int) int {
 	fixed := 0
 	for _, v := range vals {

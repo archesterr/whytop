@@ -1,6 +1,7 @@
 package collect
 
 import (
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,6 +20,12 @@ type Snapshot struct {
 	Mem Mem
 	PSI PSI
 
+	// OS is the distribution's own name for itself, plus the kernel it's
+	// running. On a fleet of look-alike boxes it's the first thing you want
+	// confirmed before you believe anything else on the screen.
+	OS     string
+	Kernel string
+
 	Procs []Proc
 	ByPID map[int32]int `json:"-"` // PID -> index in Procs
 
@@ -34,6 +41,11 @@ type Snapshot struct {
 type CPU struct {
 	Cores                                   int
 	User, System, Iowait, Steal, Idle, Busy float64 // percent
+	// PerCore is each core's busy percentage. A 12-core box averaging 8%
+	// looks idle right up until you notice one core pinned at 100% — which
+	// is what a single-threaded bottleneck looks like, and the average is
+	// exactly the statistic that hides it.
+	PerCore []float64
 }
 
 type Mem struct {
@@ -67,6 +79,31 @@ type Proc struct {
 	IOHidden          bool    // true when /proc/<pid>/io was unreadable (not root, other user)
 	Threads           int32
 	Started           time.Time
+
+	// Ports are the ports this process is listening on, and Estab is how
+	// many connections it currently has established. Answering "what is
+	// listening on 8080" used to mean leaving for `ss -tulpn`.
+	Ports []uint32
+	Estab int
+	// NetRxBps/NetTxBps are per-process network throughput, and NetKnown
+	// says whether they were measurable at all — see collect/netrate.go for
+	// why that is not a given on Linux.
+	NetRxBps, NetTxBps float64
+	NetKnown           bool
+}
+
+// PortList renders the listening ports for a table cell, newest concern
+// first: a process listening on three ports shows the lowest (most likely
+// to be the service port) and says how many more there are.
+func (p Proc) PortList() string {
+	switch len(p.Ports) {
+	case 0:
+		return ""
+	case 1:
+		return strconv.FormatUint(uint64(p.Ports[0]), 10)
+	}
+	out := strconv.FormatUint(uint64(p.Ports[0]), 10)
+	return out + "+" + strconv.Itoa(len(p.Ports)-1)
 }
 
 // Kernel reports whether this is a kernel thread ([kworker/…], [ksoftirqd/…]

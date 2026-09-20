@@ -42,7 +42,7 @@ func TestProcRowsSortByPIDAscending(t *testing.T) {
 
 func TestProcRowsFilterByName(t *testing.T) {
 	m := model{snap: testSnap(), sortKey: "cpu"}
-	m.filter[tabProcs] = "nginx"
+	m.filter = "nginx"
 	list := m.procRows()
 	if len(list) != 2 {
 		t.Fatalf("got %d rows matching 'nginx', want 2 (name match + cmdline match)", len(list))
@@ -56,7 +56,7 @@ func TestProcRowsFilterByName(t *testing.T) {
 
 func TestProcRowsFilterByPID(t *testing.T) {
 	m := model{snap: testSnap(), sortKey: "cpu"}
-	m.filter[tabProcs] = "42"
+	m.filter = "42"
 	list := m.procRows()
 	if len(list) != 1 || list[0].PID != 42 {
 		t.Errorf("exact PID filter got %+v, want just PID 42", list)

@@ -44,7 +44,7 @@ whytop watches the *host*, so a container that can only see itself is a containe
 |---|---|
 | `-it` | No TTY, so no TUI at all — this one isn't optional |
 | `--pid=host` | You see the container's own handful of processes instead of the host's |
-| `--network=host` | The Ports and Network tabs show the container's namespace, not the host's |
+| `--network=host` | Ports and per-process traffic are the container's namespace, not the host's |
 | `--cap-add=SYS_PTRACE` | Other users' per-process I/O and open files read as `hidden` |
 | `--cap-add=DAC_READ_SEARCH` | Same, for `/proc` entries the container user can't traverse |
 | `--cap-add=KILL` | Stop and force-kill fail |
@@ -53,7 +53,7 @@ whytop watches the *host*, so a container that can only see itself is a containe
 
 Two things the image genuinely cannot do:
 
-- **Filesystem usage is the container's, not the host's.** The Disks tab's block-device, IOPS and latency numbers come from `/proc/diskstats` and are host-wide, but mount usage comes from the mounts whytop can see. Bind-mount what you care about, or run the binary on the host for that tab.
+- **Filesystem usage is the container's, not the host's.** The disk and mount figures behind the status line come from the mounts whytop can see. Bind-mount what you care about, or run the binary on the host.
 - **`c` (close a descriptor) needs gdb**, which isn't in the image — a debugger doesn't belong in a monitoring image. `t` (empty a file) works normally.
 
 Restarting units additionally needs write access to systemd's socket (`-v /run/systemd/private`), which is effectively full control of the host's services from inside the container. That's deliberately not in the command above; add it only if you want that.
@@ -66,18 +66,37 @@ docker build -t whytop --build-arg VERSION=$(git describe --tags) .
 
 ## What you get
 
-| Tab | Shows |
+**One screen.** There are no tabs. Everything is the process list, because on a real box every question ends up being about a process anyway: what is eating the disk, what is holding port 8080, what is that unit doing. Splitting those across four tabs meant knowing which tab to be in before you knew what you were looking for.
+
+| Column | Shows |
 |---|---|
-| Processes | CPU, memory, disk read/write per second, state (D and Z highlighted), systemd unit, command. Sort by any column |
-| Ports | Listening sockets with owning process, its memory, and unit. Wildcard binds flagged. Established, time-wait, close-wait counts |
-| Disks | IOPS, throughput, await, queue depth, utilization per device — plus the processes actually driving those numbers right now, a process stuck in D-state (blocked on I/O) always ranked first. Filesystem and inode usage. Hung network mounts flagged |
-| Network | Per-interface traffic, errors, drops. TCP retransmits, resets, new connections |
+| PID, USER, ST | State, with D (blocked on I/O) and Z (zombie) highlighted |
+| CPU%, MEM | Memory coloured against the size of the machine, not a fixed byte count |
+| READ, WRITE | Block-layer bytes per second |
+| PORT | The lowest port the process listens on, `+n` for the rest, `→n` when it isn't listening but has n connections open |
+| NET↓, NET↑ | Per-process network throughput — see the caveat below |
+| UNIT, COMMAND | The systemd unit, and the command line two-toned so the program's own name stands out of the path |
 
-whytop uses the whole terminal, however wide it is — the extra columns go to `COMMAND`, since a truncated command line is the usual reason to want a wider window.
+Every column sorts, by click or with `s`. The filter (`/`) searches all of them, and a bare number searches ports too: type `443` to find out what is serving it, or `port:443` to match only the port and nothing else.
 
-Always visible: CPU, memory, I/O wait, load per core, and PSI pressure — each with a gauge, so the shape of the machine's load registers before you've read a single number — and under them, a one-line verdict in plain words. Not `PSI io 22%`, but `⚠ 3 processes stuck waiting on disk · sda 98% busy · /var almost full (97%)`, or just `✓ Nothing obviously wrong right now`. You shouldn't need to already know that 0.7 load across 4 cores is fine but 20% I/O pressure is an emergency.
+whytop uses the whole terminal, however wide it is — the extra columns go to `COMMAND`, since a truncated command line is the usual reason to want a wider window. As the terminal narrows, columns are given up in order (UNIT, then NET, then PORT) rather than squeezing COMMAND to an unreadable sliver.
 
-**Every finding is a link.** Click one, or press `g` to walk them, and whytop goes to the rows it's about — "3 processes stuck waiting on disk" opens the process list filtered to exactly those three, whether there's one or eight of them. `Esc` clears the filter again. Findings that are averages rather than live counts (I/O wait, PSI) go to the Disks tab instead, since by the time you press `g` nothing may be blocked at that instant.
+### About NET↓ / NET↑
+
+Linux does not simply hand you per-process network throughput. `/proc/<pid>/net/*` is per network *namespace*, not per process, so on an ordinary host it reports the whole machine's traffic for every PID — which is why most tools don't show this at all. Tools that do it properly either capture packets (nethogs) or read per-socket byte counters out of the kernel.
+
+whytop takes the second route, via `ss`, because a monitoring tool has no business opening a packet capture. That means:
+
+- **No `ss` (iproute2) on the host, or no root:** the columns disappear rather than showing zeros. A process whose traffic simply wasn't visible reads `?`, never `0 B/s` — those are different answers and only one of them is safe to act on.
+- **TCP only.** UDP sockets carry no equivalent counters.
+
+### The rest of the screen
+
+Along the top: CPU, memory, I/O wait, load per core and PSI pressure, each with a gauge — plus a bar per core, because a 12-core box averaging 8% looks idle right up until you notice one core pinned at 100%, which is what a single-threaded bottleneck looks like from the outside. The header also names the distribution and kernel, so you can confirm which machine you are on before believing anything else.
+
+Under them, a one-line verdict in plain words. Not `PSI io 22%`, but `⚠ 3 processes stuck waiting on disk · sda 98% busy · /var almost full (97%)`, or just `✓ Nothing obviously wrong right now`. You shouldn't need to already know that 0.7 load across 4 cores is fine but 20% I/O pressure is an emergency.
+
+**Every finding is a link.** Click one, or press `g` to walk them, and the list narrows to the rows it's about — "3 processes stuck waiting on disk" filters to exactly those three, whether there's one or eight of them. `Esc` clears the filter again. Findings that are averages rather than live counts (I/O wait, PSI) sort the list instead of filtering it, since by the time you press `g` nothing may be blocked at that instant — sorting by I/O always has something to show, and it puts processes actually blocked on I/O above the ones merely doing a lot of it.
 
 A red banner surfaces immediately if the kernel OOM-killed a process — no need to go digging through `dmesg`.
 
@@ -89,14 +108,12 @@ Opening a process shows its state, parent, CPU/memory/disk with children, its op
 
 ## Keys
 
-The footer lists only the keys that work on the current screen.
+The footer lists only the keys that do something on the current screen.
 
 | Where | Keys |
 |---|---|
-| Everywhere | `1`–`4` tabs (also `←` `→`/`Tab`/`h`/`l`), `g` go to the next problem, `p` pause |
-| Processes, Ports | `↑` `↓` select, `Enter` open, `/` filter, `Esc` clear filter |
-| Processes | `s` cycle sort, `S` reverse it, `L` lock/unlock the row order, `K` show/hide kernel threads |
-| Ports | `a` all sockets / listening only |
+| List | `↑` `↓` select, `Enter` open, `/` filter, `Esc` clear filter, `g` go to the next problem, `p` pause |
+| List | `s` cycle sort, `S` reverse it, `L` lock/unlock the row order, `K` show/hide kernel threads |
 | Process panel | `Tab` switch between the process tree and open files, `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `e` edit its unit file (asks to `daemon-reload` after), `j` reload journal, `f` pause/resume the live journal, `Esc` close |
 | Open files | `t` empty the file (reclaims its space, process keeps running), `c` close the descriptor |
 

@@ -26,10 +26,14 @@ type finding struct {
 	to jump
 }
 
-// jump is a view that shows what a finding is about: the tab, and the filter
-// and sort that narrow it down to the rows in question.
+// jump is what a finding is about, expressed as the filter and sort that
+// narrow the process list down to the rows in question.
+//
+// There is one list now, so every finding lands in it. That is a better
+// answer than the tabs gave, not a worse one: "high I/O wait" used to open a
+// tab of block devices and leave you to work out which process was behind
+// them, and now it puts the heaviest writers on top.
 type jump struct {
-	tab     tab
 	filter  string
 	sortKey string
 	sortDir int
@@ -56,17 +60,19 @@ func (m model) findings() []finding {
 	// The destinations. Blocked and zombie processes filter the list down to
 	// exactly those, which is what makes the answer readable when there are
 	// eight of them rather than one.
-	// Only the blocked-process finding filters on live state. I/O wait and
-	// PSI are averages over a window, so by the time you press g nothing may
-	// be in D at all — those go to the Disks tab, which shows the devices and
-	// the processes driving them rather than an empty filtered list.
+	//
+	// Only those two filter on live state. I/O wait and PSI are averages
+	// over a window, so by the time you press g nothing may be in D at all —
+	// filtering on it would strand you on an empty list. Those sort instead,
+	// which always has something to show: the processes doing the most of
+	// whatever the finding is about.
 	var (
-		toBlocked = jump{tab: tabProcs, filter: "state:D", sortKey: "state", sortDir: 1}
-		toZombies = jump{tab: tabProcs, filter: "state:Z", sortKey: "state", sortDir: 1}
-		toMem     = jump{tab: tabProcs, sortKey: "mem", sortDir: -1}
-		toCPU     = jump{tab: tabProcs, sortKey: "cpu", sortDir: -1}
-		toIO      = jump{tab: tabDisks}
-		toNet     = jump{tab: tabNet}
+		toBlocked = jump{filter: "state:D", sortKey: "state", sortDir: 1}
+		toZombies = jump{filter: "state:Z", sortKey: "state", sortDir: 1}
+		toMem     = jump{sortKey: "mem", sortDir: -1}
+		toCPU     = jump{sortKey: "cpu", sortDir: -1}
+		toIO      = jump{sortKey: "io", sortDir: -1}
+		toNet     = jump{sortKey: "net", sortDir: -1}
 	)
 
 	// Processes stuck in uninterruptible sleep are the most actionable
@@ -267,24 +273,26 @@ func (m model) renderStatus(w int) string {
 // move at all.
 func (m *model) applyJump(f finding) (tea.Model, tea.Cmd) {
 	t := f.to
-	m.tab = t.tab
 	m.detail = nil
 	m.editing = false
-	if t.tab == tabProcs {
-		m.filter[tabProcs] = t.filter
-		// A filter for blocked processes is useless if the kernel threads
-		// they're waiting behind are hidden — D state is exactly where a
-		// kernel thread is worth seeing.
-		if t.filter != "" {
-			m.showKernel = true
-		}
-		if t.sortKey != "" {
-			m.sortKey, m.sortDir = t.sortKey, t.sortDir
-		}
-		m.sel[tabProcs] = "" // let the first matching row take the cursor
-		m.moveSel(0)
+	m.filter = t.filter
+	// A filter for blocked processes is useless if the kernel threads
+	// they're waiting behind are hidden — D state is exactly where a
+	// kernel thread is worth seeing.
+	if t.filter != "" {
+		m.showKernel = true
 	}
-	return m.showToast("Showing: "+f.text+"  (esc clears the filter)", true)
+	if t.sortKey != "" {
+		m.sortKey, m.sortDir = t.sortKey, t.sortDir
+		m.relock() // an explicit re-sort re-freezes a locked order
+	}
+	m.sel = "" // let the first matching row take the cursor
+	m.moveSel(0)
+	hint := "  (esc clears the filter)"
+	if t.filter == "" {
+		hint = "  (sorted by what the finding is about)"
+	}
+	return m.showToast("Showing: "+f.text+hint, true)
 }
 
 // jumpToFinding steps through the findings one press at a time. With several

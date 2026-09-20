@@ -16,21 +16,6 @@ import (
 	"github.com/archesterr/whytop/internal/collect"
 )
 
-type tab int
-
-const (
-	tabProcs tab = iota
-	tabPorts
-	tabDisks
-	tabNet
-)
-
-const numTabs = 4
-
-func (t tab) String() string {
-	return [...]string{"Processes", "Ports", "Disks", "Network"}[t]
-}
-
 // Options configures a Run.
 type Options struct {
 	Interval time.Duration
@@ -101,23 +86,21 @@ type oomPollMsg struct {
 }
 
 type model struct {
-	col      *collect.Collector
-	opt      Options
-	snap     *collect.Snapshot
-	paused   bool
-	width    int
-	height   int
-	tab      tab
-	sortKey  string
-	sortDir  int
-	filter   [2]string // indexed by tabProcs/tabPorts
-	editing  bool
-	allConns bool
+	col     *collect.Collector
+	opt     Options
+	snap    *collect.Snapshot
+	paused  bool
+	width   int
+	height  int
+	sortKey string
+	sortDir int
+	filter  string
+	editing bool
 	// showKernel reveals kernel threads in the process list. Off by default:
 	// see Proc.Kernel.
 	showKernel bool
-	sel        [2]string // selected row key, indexed by tabProcs/tabPorts
-	findingSel int       // which status-line finding g jumps to next
+	sel        string // selected row key
+	findingSel int    // which status-line finding g jumps to next
 
 	// lockOrder freezes the process list's row order. See lockRank.
 	lockOrder bool
@@ -187,9 +170,7 @@ func (m model) pollOOMCmd(after time.Duration) tea.Cmd {
 
 func (m model) collectCmd(after time.Duration) tea.Cmd {
 	col := m.col
-	wantConns := m.tab == tabPorts || m.detail != nil || m.deepPort > 0
 	return tea.Tick(after, func(time.Time) tea.Msg {
-		col.WantConns.Store(wantConns)
 		return snapMsg(col.Collect())
 	})
 }
@@ -320,8 +301,7 @@ func (m *model) resolveDeepLink() tea.Cmd {
 				return tea.Batch(m.loadExtraCmd(c.PID), m.loadJournalCmd(c.PID))
 			}
 		}
-		m.tab = tabPorts
-		m.filter[tabPorts] = strconv.Itoa(port)
+		m.filter = "port:" + strconv.Itoa(port)
 		_, cmd := m.showToast(fmt.Sprintf("Nothing visible is listening on port %d", port), false)
 		return cmd
 	}

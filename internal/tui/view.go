@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,11 +55,9 @@ func (m model) View() string {
 	if m.detail != nil {
 		b.WriteString(m.renderDetail(w, h))
 	} else {
-		b.WriteString(m.renderTabs(w))
-		b.WriteString("\n")
 		b.WriteString(hrule(w))
 		b.WriteString("\n")
-		b.WriteString(m.renderTab(w, h))
+		b.WriteString(m.renderList(w, h))
 	}
 	b.WriteString("\n")
 
@@ -127,7 +126,18 @@ func (m model) renderHeader(w int) string {
 	}
 	host := truncate(safeText(s.Host), hostBudget)
 	metaBudget := max0(avail - lipgloss.Width(host) - 2)
-	meta := truncate(fmt.Sprintf("up %s · %d cores · %d processes", dur(s.Uptime), s.CPU.Cores, len(s.Procs)), metaBudget)
+	// The distribution and kernel go here rather than in the vitals block:
+	// they never change while whytop runs, so they belong with the other
+	// facts about *which machine this is* rather than among the numbers you
+	// are watching move.
+	osBit := ""
+	if s.OS != "" {
+		osBit = " · " + s.OS
+		if s.Kernel != "" {
+			osBit += " (" + s.Kernel + ")"
+		}
+	}
+	meta := truncate(fmt.Sprintf("up %s · %d cores · %d processes%s", dur(s.Uptime), s.CPU.Cores, len(s.Procs), safeText(osBit)), metaBudget)
 
 	left := stLogo.Render(logo) + "  " + stHost.Render(host) + "  " + stMuted.Render(meta)
 	if warnNote != "" {
@@ -225,7 +235,68 @@ func (m model) renderVitals(w int) string {
 		budget := max0(colW - len(v.value) - 2)
 		line2 = append(line2, pad(v.style.Bold(true).Render(v.value)+"  "+stMuted.Render(truncate(v.sub, budget)), colW, false))
 	}
-	return strings.Join(line1, " ") + "\n" + strings.Join(line2, " ")
+	return strings.Join(line1, " ") + "\n" + strings.Join(line2, " ") + "\n" + m.renderCores(w)
+}
+
+// renderCores draws every core as its own small bar.
+//
+// A 12-core box averaging 8% looks idle right up until you notice one core
+// pinned at 100%, which is what a single-threaded bottleneck looks like from
+// the outside — and the average in the CPU card above is exactly the
+// statistic that hides it. This is the one line on the screen that shows the
+// shape of the load rather than its total.
+func (m model) renderCores(w int) string {
+	cores := m.snap.CPU.PerCore
+	if len(cores) == 0 || w < 12 {
+		return ""
+	}
+	// Each core needs its number, a bar and a space. On a wide terminal the
+	// bars grow; on a narrow one, or a machine with many cores, they shrink
+	// to a minimum and then the row simply stops rather than wrapping — a
+	// wrapped line here would push a row of real data off the bottom.
+	label := len(strconv.Itoa(len(cores) - 1))
+	const minBar = 3
+	per := w / len(cores)
+	barW := per - label - 2
+	if barW > 10 {
+		barW = 10
+	}
+	shown := len(cores)
+	if barW < minBar {
+		barW = minBar
+		shown = w / (minBar + label + 2)
+	}
+	if shown < 1 {
+		return ""
+	}
+
+	var b strings.Builder
+	for i := 0; i < shown && i < len(cores); i++ {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		v := cores[i]
+		// Per-core thresholds are higher than the machine-wide ones: one
+		// core at 90% is normal on any box doing work, while the whole
+		// machine at 90% is not.
+		fill := stCore
+		switch {
+		case v >= 95:
+			fill = stCrit
+		case v >= 80:
+			fill = stWarn
+		}
+		b.WriteString(stFaint.Render(pad2(strconv.Itoa(i), label)))
+		b.WriteString(stFaint.Render("["))
+		b.WriteString(gauge(v/100, barW, fill))
+		b.WriteString(stFaint.Render("]"))
+	}
+	if shown < len(cores) {
+		if rest := fmt.Sprintf(" +%d", len(cores)-shown); visLen(b.String())+len(rest) <= w {
+			b.WriteString(stFaint.Render(rest))
+		}
+	}
+	return truncateANSI(b.String(), w)
 }
 
 func stripANSI(s string) string {
@@ -258,95 +329,6 @@ func max3(a, b, c float64) float64 {
 	return m
 }
 
-func (m model) renderTabs(w int) string {
-	alert := m.tabAlerts()
-	var parts []string
-	for _, r := range tabRegions(m.tabCounts()) {
-		// Render each segment from plain text only — wrapping a string that
-		// already contains another segment's ANSI codes in a second
-		// .Render() call corrupts the escape sequences.
-		if r.t == m.tab {
-			// Active tab reads as a solid pill, k9s/lazydocker-style, instead
-			// of a bare underline — a first-time user spots "where am I"
-			// instantly instead of having to notice an underline.
-			part := stTabOn.Render(r.base)
-			if r.countText != "" {
-				part += stTabOnCnt.Render(r.countText)
-			}
-			parts = append(parts, part)
-			continue
-		}
-		part := stTabOff.Render(r.base)
-		if r.countText != "" {
-			// A count that's a problem is the one thing worth colouring in
-			// here: it turns the tab bar into "where should I look next"
-			// instead of a row of trivia.
-			style := stFaint
-			if alert[r.t] {
-				style = stCrit
-			}
-			part += style.Render(r.countText)
-		}
-		parts = append(parts, part)
-	}
-	// A separator between tabs, not a bare space: it binds each count to the
-	// tab it belongs to. Without it "Processes 350  2 Ports" reads as one
-	// run of words and the numbers look like they're floating loose.
-	return strings.Join(parts, stFaint.Render("│"))
-}
-
-// tabAlerts marks the tabs whose contents are currently a problem.
-func (m model) tabAlerts() map[tab]bool {
-	s := m.snap
-	out := map[tab]bool{}
-	if s == nil {
-		return out
-	}
-	for _, p := range s.Procs {
-		if p.State == "D" {
-			out[tabProcs] = true
-			break
-		}
-	}
-	for _, d := range s.Disks {
-		if d.Util >= 95 || d.AwaitMs >= 100 {
-			out[tabDisks] = true
-		}
-	}
-	for _, fs := range s.FS {
-		if fs.Stale || fs.UsedPct >= 95 || fs.InodePct >= 90 {
-			out[tabDisks] = true
-		}
-	}
-	for _, n := range s.NICs {
-		if n.ErrPs > 0 || n.DropPs >= 1 {
-			out[tabNet] = true
-		}
-	}
-	return out
-}
-
-func (m model) tabCounts() map[tab]int {
-	s := m.snap
-	listen := -1
-	if s.ConnsCollected {
-		listen = 0
-		for _, c := range s.Conns {
-			if c.Listening() {
-				listen++
-			}
-		}
-	}
-	// Disks and Network carry no count at all — five devices and four
-	// interfaces are facts you can see the moment you open the tab, so
-	// putting them in the tab bar only adds numbers to skip over.
-	//
-	// Processes counts what the list actually shows, not every PID on the
-	// system: a count that disagrees with the rows under it is a bug report
-	// waiting to happen.
-	return map[tab]int{tabProcs: len(m.procRows()), tabPorts: listen, tabDisks: -1, tabNet: -1}
-}
-
 // hrule draws a thin horizontal rule under the tab bar, separating chrome
 // from data — the same visual cue k9s/lazydocker use to make the screen read
 // as distinct panels instead of one undifferentiated block of text.
@@ -357,33 +339,29 @@ func hrule(w int) string {
 	return stFaint.Render(strings.Repeat("─", w))
 }
 
-// tabRowsBudget is the number of data rows renderProcs/renderPorts actually
-// draw (header line already subtracted) — mouse click hit-testing needs the
-// exact same number to translate a screen row back into a list index,
+// listRowsBudget is the number of data rows renderProcs actually draws
+// (column-header line already subtracted) — mouse click hit-testing needs
+// the exact same number to translate a screen row back into a list index,
 // since both are scrolled to follow the selection (windowRows).
-func (m model) tabRowsBudget() int {
-	avail := m.height - 8
-	if avail < 3 {
-		avail = 3
-	}
-	return avail - 1
+func (m model) listRowsBudget() int {
+	return m.listBudget(m.height) - 1
 }
 
-func (m model) renderTab(w, h int) string {
-	avail := h - 8 // header + vitals(2) + status + tabs + rule + footer
-	if avail < 3 {
-		avail = 3
+func (m model) renderList(w, h int) string {
+	return m.renderProcs(w, m.listBudget(h))
+}
+
+// listBudget is how many lines the table gets: everything except the fixed
+// chrome above and below it. It is written once here and derived everywhere
+// else, because a click's row index and the number of rows drawn have to
+// come from the same arithmetic or they disagree by one and every click
+// lands on the wrong row.
+func (m model) listBudget(h int) int {
+	const chrome = 7 // header + vitals(3) + status + rule + footer
+	if avail := h - chrome; avail >= 3 {
+		return avail
 	}
-	switch m.tab {
-	case tabProcs:
-		return m.renderProcs(w, avail)
-	case tabPorts:
-		return m.renderPorts(w, avail)
-	case tabDisks:
-		return m.renderDisks(w, avail)
-	default:
-		return m.renderNet(w, avail)
-	}
+	return 3
 }
 
 func (m model) renderFooter(w int) string {
@@ -420,37 +398,23 @@ func (m model) renderFooter(w int) string {
 		}
 		keys = append(keys, [2]string{"j", "journal"}, [2]string{follow[:1], follow[2:]}, [2]string{"esc", "close"})
 	default:
-		// Only advertise keys that actually do something on this tab. Disks
-		// and Network have no selectable rows, and a footer offering "enter
-		// open" where nothing opens teaches people not to trust the footer.
-		keys = [][2]string{{"1-4/←→", "tabs"}}
+		keys = [][2]string{{"↑↓", "select"}, {"enter", "open"}, {"/", "filter"}}
 		// Only offered when there's something to jump to — a key that does
 		// nothing on a healthy box is a key people learn to ignore.
 		if len(m.findings()) > 0 {
-			keys = append(keys, [2]string{"g", "go to problem"})
+			keys = append([][2]string{{"g", "go to problem"}}, keys...)
 		}
-		if m.tab == tabProcs || m.tab == tabPorts {
-			keys = append(keys, [2]string{"↑↓", "select"})
+		// Not "sort: cpu" — the arrow in the column header already says
+		// which column, and says it where you're looking.
+		// The lock hint names the state it is in, not the state it would
+		// switch to: an operator glancing down needs to know whether the
+		// rows under them are moving, more than what L does next.
+		lock := "order: live"
+		if m.lockOrder {
+			lock = "order: LOCKED"
 		}
-		if m.tab == tabProcs || m.tab == tabPorts {
-			keys = append(keys, [2]string{"enter", "open"}, [2]string{"/", "filter"})
-		}
-		if m.tab == tabProcs {
-			// Not "sort: cpu" — the arrow in the column header already says
-			// which column, and says it where you're looking.
-			// The lock hint names the state it is in, not the state it would
-			// switch to: an operator glancing down needs to know whether the
-			// rows under them are moving, more than what L does next.
-			lock := "L order: live"
-			if m.lockOrder {
-				lock = "L order: LOCKED"
-			}
-			keys = append(keys, [2]string{"s", "sort"}, [2]string{"L", lock[2:]}, [2]string{"K", "kernel"})
-		}
-		if m.tab == tabPorts {
-			keys = append(keys, [2]string{"a", "all sockets"})
-		}
-		keys = append(keys, [2]string{"p", "pause"}, [2]string{"q", "quit"})
+		keys = append(keys, [2]string{"s", "sort"}, [2]string{"L", lock}, [2]string{"K", "kernel"},
+			[2]string{"p", "pause"}, [2]string{"q", "quit"})
 	}
 	var parts []string
 	for _, k := range keys {
@@ -475,8 +439,7 @@ func (m model) renderFooter(w int) string {
 	}
 	line := strings.Join(kept, gap)
 	if m.editing {
-		i := int(m.tab)
-		line = stAccent.Render("filter: ") + m.filter[i] + stMuted.Render("█") + "   " + line
+		line = stAccent.Render("filter: ") + safeText(m.filter) + stMuted.Render("█") + "   " + line
 	}
 	return line
 }

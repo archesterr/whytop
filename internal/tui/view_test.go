@@ -31,9 +31,6 @@ func TestAllTablesFit80ColumnsWithSeparators(t *testing.T) {
 
 	checks := map[string]string{
 		"procs":  m.renderProcs(80, 20),
-		"ports":  m.renderPorts(80, 20),
-		"disks":  m.renderDisks(80, 20),
-		"net":    m.renderNet(80, 20),
 		"footer": m.renderFooter(80),
 	}
 	for name, out := range checks {
@@ -119,39 +116,6 @@ func TestViewNeverPanicsAcrossSizes(t *testing.T) {
 }
 
 // A container host routinely has dozens to hundreds of veth interfaces —
-// regression coverage for renderNet/renderDisks never bounding their row
-// count against the terminal height, which could push the footer (and its
-// key hints) off-screen entirely.
-func TestRenderNetCapsInterfacesToHeight(t *testing.T) {
-	var nics []collect.NIC
-	for i := 0; i < 200; i++ {
-		nics = append(nics, collect.NIC{Name: "veth" + string(rune('a'+i%26))})
-	}
-	m := model{snap: &collect.Snapshot{NICs: nics, TCP: collect.TCP{Available: true}}}
-	h := 15
-	lines := strings.Split(m.renderNet(80, h), "\n")
-	if len(lines) > h+2 { // small slack for section headers already accounted for
-		t.Errorf("renderNet produced %d lines for a height-%d budget with 200 interfaces (should be capped)", len(lines), h)
-	}
-	if !strings.Contains(m.renderNet(80, h), "more") {
-		t.Error("renderNet with more interfaces than fit should show an overflow notice")
-	}
-}
-
-func TestRenderDisksCapsRowsToHeight(t *testing.T) {
-	var disks []collect.Disk
-	var fs []collect.FS
-	for i := 0; i < 100; i++ {
-		disks = append(disks, collect.Disk{Name: "sd" + string(rune('a'+i%26))})
-		fs = append(fs, collect.FS{Mount: "/mnt/" + string(rune('a'+i%26))})
-	}
-	m := model{snap: &collect.Snapshot{Disks: disks, FS: fs}}
-	h := 15
-	lines := strings.Split(m.renderDisks(80, h), "\n")
-	if len(lines) > h+4 {
-		t.Errorf("renderDisks produced %d lines for a height-%d budget with 100 disks/mounts (should be capped)", len(lines), h)
-	}
-}
 
 func TestRenderVitalsNoWrapWithBlockedProcesses(t *testing.T) {
 	m := model{snap: &collect.Snapshot{

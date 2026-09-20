@@ -78,7 +78,7 @@ func TestFactsGridUsesThreeColumnsWhenThereIsRoom(t *testing.T) {
 // it's doing, and a log that silently stopped updating is worse than none.
 func TestJournalFollowsByDefaultAndSaysSo(t *testing.T) {
 	m := model{snap: detailSnap(), sortKey: "pid", width: 100}
-	m.sel[tabProcs] = "10"
+	m.sel = "10"
 	got, _ := m.openSelected()
 	gm := got.(model)
 	if gm.detail == nil || !gm.detail.follow {

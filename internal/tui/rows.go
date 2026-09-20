@@ -32,7 +32,7 @@ func (m model) procRows() []collect.Proc {
 		list = append(list, p)
 	}
 
-	f := strings.ToLower(strings.TrimSpace(m.filter[tabProcs]))
+	f := strings.ToLower(strings.TrimSpace(m.filter))
 	if f != "" {
 		// "state:D" matches the state column exactly rather than as free
 		// text, which is what lets the status line narrow the list to the
@@ -47,10 +47,26 @@ func (m model) procRows() []collect.Proc {
 			}
 			return m.order(out)
 		}
+		// "port:8080" matches the listening port exactly. Plain "8080"
+		// would also match any PID or command line containing 8080, which
+		// is the wrong answer to "who has port 8080" — the question the
+		// column exists for.
+		if want, ok := strings.CutPrefix(f, "port:"); ok {
+			out := list[:0]
+			for _, p := range list {
+				if hasPort(p, want) {
+					out = append(out, p)
+				}
+			}
+			return m.order(out)
+		}
 		out := list[:0]
 		for _, p := range list {
 			hay := strconv.Itoa(int(p.PID)) + " " + strings.ToLower(p.Name+" "+p.User+" "+unitName(p.Unit)+" "+p.Cmdline+" "+p.Container+" "+p.Runtime)
-			if strconv.Itoa(int(p.PID)) == f || strings.Contains(hay, f) {
+			// A bare number searches ports too: typing 443 to find out what
+			// is serving it is the obvious thing to try, and making people
+			// learn the port: prefix first would be a puzzle, not a filter.
+			if strconv.Itoa(int(p.PID)) == f || hasPort(p, f) || strings.Contains(hay, f) {
 				out = append(out, p)
 			}
 		}
@@ -110,12 +126,53 @@ func (m *model) relock() {
 	m.lockRank = rank
 }
 
+// hasPort reports whether the process listens on the given port. The port is
+// matched as a whole number, so 80 does not match 8080.
+func hasPort(p collect.Proc, want string) bool {
+	n, err := strconv.ParseUint(want, 10, 32)
+	if err != nil {
+		return false
+	}
+	for _, port := range p.Ports {
+		if uint64(port) == n {
+			return true
+		}
+	}
+	return false
+}
+
 func sortProcs(list []collect.Proc, sortKey string, dir int) []collect.Proc {
 	if dir == 0 {
 		dir = defaultSortDir(sortKey)
 	}
 	less := func(i, j int) bool {
 		a, b := list[i], list[j]
+
+		// Sorting by I/O ranks processes blocked on it above processes
+		// merely doing a lot of it. A wedged process reports almost no
+		// bytes per second — being stuck is precisely why — so by measured
+		// throughput it sorts to the bottom, which is the opposite of what
+		// someone sorting by I/O is looking for. This is what the Disks
+		// tab's own process table used to do before there was one list.
+		if sortKey == "io" || sortKey == "read" || sortKey == "write" {
+			if ad, bd := a.State == "D", b.State == "D"; ad != bd {
+				return ad
+			}
+		}
+
+		// Sorting by port keeps every process that listens on something
+		// above every process that doesn't, whichever direction the column
+		// is sorted in. Reversing the order should reverse the ports, not
+		// bury them under a screen of blank cells.
+		if sortKey == "port" {
+			al, bl := len(a.Ports) > 0, len(b.Ports) > 0
+			if al != bl {
+				return al
+			}
+			if !al {
+				return a.PID < b.PID
+			}
+		}
 
 		// Text columns compare as text; the rest compare as numbers. Sorting
 		// USER or COMMAND numerically would be meaningless, and sorting MEM
@@ -140,6 +197,14 @@ func sortProcs(list []collect.Proc, sortKey string, dir int) []collect.Proc {
 			x, y = a.WriteBps, b.WriteBps
 		case "io":
 			x, y = a.ReadBps+a.WriteBps, b.ReadBps+b.WriteBps
+		case "rx":
+			x, y = a.NetRxBps, b.NetRxBps
+		case "tx":
+			x, y = a.NetTxBps, b.NetTxBps
+		case "net":
+			x, y = a.NetRxBps+a.NetTxBps, b.NetRxBps+b.NetTxBps
+		case "port":
+			x, y = portKey(a), portKey(b)
 		case "pid":
 			x, y = float64(a.PID), float64(b.PID)
 		default: // cpu
@@ -155,6 +220,15 @@ func sortProcs(list []collect.Proc, sortKey string, dir int) []collect.Proc {
 	}
 	sort.SliceStable(list, less)
 	return list
+}
+
+// portKey is a process's lowest listening port. Processes that listen on
+// nothing never reach here — sortProcs separates them out first.
+func portKey(p collect.Proc) float64 {
+	if len(p.Ports) == 0 {
+		return 0
+	}
+	return float64(p.Ports[0])
 }
 
 // sortText returns the two values to compare for a text column, and whether
@@ -181,53 +255,4 @@ func defaultSortDir(key string) int {
 		return -1
 	}
 	return 1
-}
-
-// portRows returns the filtered, sorted socket list for the Ports tab.
-func (m model) portRows() []collect.Conn {
-	if m.snap == nil || !m.snap.ConnsCollected {
-		return nil
-	}
-	var list []collect.Conn
-	for _, c := range m.snap.Conns {
-		if m.allConns || c.Listening() {
-			list = append(list, c)
-		}
-	}
-	f := strings.ToLower(strings.TrimSpace(m.filter[tabPorts]))
-	isNum := f != "" && strings.IndexFunc(f, func(r rune) bool { return r < '0' || r > '9' }) == -1
-	if f != "" {
-		out := list[:0]
-		for _, c := range list {
-			if isNum {
-				if strconv.Itoa(int(c.LPort)) == f || strconv.Itoa(int(c.PID)) == f || strings.HasSuffix(c.Remote, ":"+f) {
-					out = append(out, c)
-				}
-				continue
-			}
-			name, unit := "", ""
-			if p, ok := m.procByPID(c.PID); ok {
-				name, unit = p.Name, unitName(p.Unit)
-			}
-			hay := strings.ToLower(c.Proto + " " + c.LocalIP + " " + c.State + " " + c.Remote + " " + name + " " + unit)
-			if strings.Contains(hay, f) {
-				out = append(out, c)
-			}
-		}
-		list = out
-	}
-	sort.Slice(list, func(i, j int) bool {
-		if list[i].LPort != list[j].LPort {
-			return list[i].LPort < list[j].LPort
-		}
-		if list[i].Proto != list[j].Proto {
-			return list[i].Proto < list[j].Proto
-		}
-		return list[i].PID < list[j].PID
-	})
-	return list
-}
-
-func connKey(c collect.Conn) string {
-	return c.Proto + "|" + c.LocalIP + "|" + strconv.Itoa(int(c.LPort)) + "|" + c.Remote + "|" + strconv.Itoa(int(c.PID))
 }

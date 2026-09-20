@@ -3,8 +3,6 @@ package tui
 import (
 	"strings"
 	"testing"
-
-	"github.com/archesterr/whytop/internal/collect"
 )
 
 // The header is only clickable-to-sort if the column a click lands on is the
@@ -13,7 +11,7 @@ import (
 // each x maps back to the key colAt reports.
 func TestHeaderClickMapsToTheColumnUnderIt(t *testing.T) {
 	for _, w := range []int{80, 132} {
-		cols := procColumns(w)
+		cols := procColumns(w, true)
 		at := 0
 		for _, c := range cols {
 			mid := at + c.w/2
@@ -29,10 +27,10 @@ func TestHeaderClickMapsToTheColumnUnderIt(t *testing.T) {
 }
 
 func TestClickingHeaderSortsAndReversesOnSecondClick(t *testing.T) {
-	m := model{snap: testSnap(), tab: tabProcs, width: 132, sortKey: "cpu", sortDir: -1}
+	m := model{snap: testSnap(), width: 132, sortKey: "cpu", sortDir: -1}
 
 	// x over the USER column.
-	cols := procColumns(m.contentW())
+	cols := m.cols(m.contentW())
 	at, userX := 0, -1
 	for _, c := range cols {
 		if c.key == "user" {
@@ -60,8 +58,8 @@ func TestClickingHeaderSortsAndReversesOnSecondClick(t *testing.T) {
 }
 
 func TestClickingNumericHeaderSortsBiggestFirst(t *testing.T) {
-	m := model{snap: testSnap(), tab: tabProcs, width: 132, sortKey: "pid", sortDir: 1}
-	cols := procColumns(m.contentW())
+	m := model{snap: testSnap(), width: 132, sortKey: "pid", sortDir: 1}
+	cols := m.cols(m.contentW())
 	at, memX := 0, -1
 	for _, c := range cols {
 		if c.key == "mem" {
@@ -146,7 +144,7 @@ func TestFullWidthAndClickOffsetAgree(t *testing.T) {
 func TestProcTableFillsAWideTerminal(t *testing.T) {
 	for _, w := range []int{80, 190, 300} {
 		total := 0
-		for i, c := range procColumns(w) {
+		for i, c := range procColumns(w, true) {
 			total += c.w
 			if i > 0 {
 				total += sepW
@@ -155,25 +153,5 @@ func TestProcTableFillsAWideTerminal(t *testing.T) {
 		if total != w {
 			t.Errorf("columns at width %d sum to %d — the table does not fill the terminal", w, total)
 		}
-	}
-}
-
-// A count in the tab bar has to be worth the space it takes. "5 disks" isn't
-// — you see them the moment you open the tab — while the number of processes
-// the list is actually showing is something you can't get any other way.
-func TestTabCountsOnlyCarryUsefulNumbers(t *testing.T) {
-	snap := &collect.Snapshot{
-		Procs: []collect.Proc{{PID: 1, Cmdline: "/sbin/init"}},
-		Disks: []collect.Disk{{Name: "sda"}, {Name: "sdb"}},
-		NICs:  []collect.NIC{{Name: "eth0"}},
-	}
-	snap.ByPID = map[int32]int{1: 0}
-	m := model{snap: snap, sortKey: "pid"}
-	counts := m.tabCounts()
-	if counts[tabDisks] != -1 || counts[tabNet] != -1 {
-		t.Errorf("Disks/Network should carry no count, got %d/%d", counts[tabDisks], counts[tabNet])
-	}
-	if counts[tabProcs] != 1 {
-		t.Errorf("Processes should count the rows the list shows, got %d", counts[tabProcs])
 	}
 }

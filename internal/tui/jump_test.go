@@ -37,10 +37,6 @@ func TestJumpingToBlockedProcessesShowsExactlyThem(t *testing.T) {
 
 	got, _ := m.jumpToFinding()
 	gm := got.(model)
-	if gm.tab != tabProcs {
-		t.Fatalf("jumped to tab %v, want the process list", gm.tab)
-	}
-
 	rows := gm.procRows()
 	if len(rows) != 3 {
 		t.Fatalf("expected the 3 blocked processes, got %d: %+v", len(rows), rows)
@@ -51,7 +47,7 @@ func TestJumpingToBlockedProcessesShowsExactlyThem(t *testing.T) {
 		}
 	}
 	// The cursor lands on a row, so enter opens something straight away.
-	if gm.sel[tabProcs] == "" {
+	if gm.sel == "" {
 		t.Error("nothing was selected after the jump — enter would do nothing")
 	}
 	if gm.toast == "" || !strings.Contains(gm.toast, "stuck waiting on disk") {
@@ -93,11 +89,11 @@ func TestEscClearsAJumpFilter(t *testing.T) {
 	m := model{snap: stuckSnap(), width: 132, sortKey: "cpu", sortDir: -1}
 	got, _ := m.jumpToFinding()
 	gm := got.(model)
-	if gm.filter[tabProcs] == "" {
+	if gm.filter == "" {
 		t.Fatal("the jump to blocked processes should have left a filter")
 	}
 	back, _ := gm.handleListKey(tea.KeyMsg{Type: tea.KeyEsc})
-	if back.(model).filter[tabProcs] != "" {
+	if back.(model).filter != "" {
 		t.Error("esc should clear the filter a jump left behind")
 	}
 }
@@ -124,14 +120,14 @@ func TestClickingAFindingGoesWhereItPoints(t *testing.T) {
 	}
 
 	got, _ := m.clickFinding(regions[0].x0)
-	if got.(model).tab != regions[0].f.to.tab {
-		t.Errorf("clicking %q went to tab %v, want %v", regions[0].f.text, got.(model).tab, regions[0].f.to.tab)
+	if got.(model).filter != regions[0].f.to.filter {
+		t.Errorf("clicking %q left filter %q, want %q", regions[0].f.text, got.(model).filter, regions[0].f.to.filter)
 	}
 
 	// A click on the gap between findings does nothing rather than guessing.
 	before := m
 	after, _ := m.clickFinding(0)
-	if after.(model).tab != before.tab || after.(model).filter[tabProcs] != before.filter[tabProcs] {
+	if after.(model).filter != before.filter || after.(model).sortKey != before.sortKey {
 		t.Error("a click on the ⚠ marker, not on a finding, should do nothing")
 	}
 }
@@ -140,14 +136,14 @@ func TestClickingAFindingGoesWhereItPoints(t *testing.T) {
 // match half the command lines on the box.
 func TestStateFilterMatchesTheColumnNotTheText(t *testing.T) {
 	m := model{snap: stuckSnap(), sortKey: "pid", sortDir: 1}
-	m.filter[tabProcs] = "state:D"
+	m.filter = "state:D"
 	for _, p := range m.procRows() {
 		if p.State != "D" {
 			t.Errorf("state:D matched a process in state %q: %+v", p.State, p)
 		}
 	}
 	// "dd if=/dev/sda" contains d's; a text filter still behaves as before.
-	m.filter[tabProcs] = "dd"
+	m.filter = "dd"
 	rows := m.procRows()
 	if len(rows) != 1 || rows[0].PID != 11 {
 		t.Errorf("plain text filtering changed behaviour: %+v", rows)
@@ -174,8 +170,10 @@ func TestAveragedFindingsDoNotJumpToALiveStateFilter(t *testing.T) {
 				t.Errorf("%q jumps to filter %q — an average can't promise a process is blocked right now",
 					f.text, f.to.filter)
 			}
-			if f.to.tab != tabDisks {
-				t.Errorf("%q should go to the disks, got tab %v", f.text, f.to.tab)
+			// It sorts instead: the heaviest I/O processes are always
+			// something to show, where a D-state filter may match nothing.
+			if f.to.sortKey != "io" {
+				t.Errorf("%q should sort by I/O, got sortKey %q", f.text, f.to.sortKey)
 			}
 		}
 	}
@@ -185,7 +183,7 @@ func TestAveragedFindingsDoNotJumpToALiveStateFilter(t *testing.T) {
 // an answer rather than as a failed search.
 func TestEmptyStateFilterExplainsItself(t *testing.T) {
 	m := model{snap: stuckSnap(), width: 120, sortKey: "pid"}
-	m.filter[tabProcs] = "state:R"
+	m.filter = "state:R"
 	out := stripANSI(m.renderProcs(120, 10))
 	if !strings.Contains(out, "may have cleared") || !strings.Contains(out, "esc") {
 		t.Errorf("an empty state filter should explain itself and offer a way out, got %q", out)
