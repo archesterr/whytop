@@ -90,6 +90,11 @@ type Proc struct {
 	// why that is not a given on Linux.
 	NetRxBps, NetTxBps float64
 	NetKnown           bool
+
+	// Depth is how far under its parent a row sits in tree view. It is set
+	// by the renderer's ordering, not by collection — the same process is
+	// at a different depth depending on what the filter left visible.
+	Depth int
 }
 
 // PortList renders the listening ports for a table cell, newest concern

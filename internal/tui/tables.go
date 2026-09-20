@@ -139,6 +139,25 @@ func (m model) renderProcs(w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
+// commandOf is what the COMMAND column shows: the whole command line, or —
+// htop's p — just the program that is running, without the path it lives
+// at. On a box full of /usr/lib/very/long/paths the second is what you are
+// actually reading.
+func (m model) commandOf(p collect.Proc) string {
+	cmd := cmdOf(p)
+	if m.fullPath {
+		return cmd
+	}
+	prog, args, _ := strings.Cut(cmd, " ")
+	if i := strings.LastIndex(prog, "/"); i >= 0 {
+		prog = prog[i+1:]
+	}
+	if args == "" {
+		return prog
+	}
+	return prog + " " + args
+}
+
 // procCell renders one column of one process row.
 func (m model) procCell(c procCol, p collect.Proc, sel bool) string {
 	switch c.key {
@@ -167,7 +186,7 @@ func (m model) procCell(c procCol, p collect.Proc, sel bool) string {
 	case "unit":
 		return cell(unitName(p.Unit), c.w, false, withBG(stAccent, sel))
 	default:
-		return cmdCell(cmdOf(p), c.w, sel)
+		return cmdCellAt(m.commandOf(p), p.Depth, c.w, sel)
 	}
 }
 

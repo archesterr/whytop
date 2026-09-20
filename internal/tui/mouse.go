@@ -4,16 +4,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// The layout is fixed at the top of the screen, so a click's row says what
-// it landed on: row 0 the header, rows 1-3 the three physical lines of the
-// vitals block, row 4 the status line, row 5 the rule under it, row 6 the
-// column header, rows 7+ the data. renderList's height budget assumes the
-// same shape — see View().
-const (
-	statusRow     = 4
-	listHeaderRow = 6
-	listFirstRow  = 7
-)
+// Where a click lands is derived from the same arithmetic the renderer
+// uses — see listHeaderRow, listFirstRow and statusRow in view.go. They
+// used to be constants, which was fine until the header panel changed
+// height and every click silently addressed the row above the one under
+// the pointer.
 
 func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.confirm != nil {
@@ -64,14 +59,14 @@ func (m model) handleClick(x, y int) (tea.Model, tea.Cmd) {
 		m.editing = false
 	}
 
-	if y == statusRow {
-		return m.clickFinding(x)
+	if y == m.statusRow() {
+		return m.clickFinding(x - boxInset)
 	}
-	if y == listHeaderRow {
-		return m.clickHeader(x)
+	if y == m.listHeaderRow() {
+		return m.clickHeader(x - boxInset)
 	}
-	if y >= listFirstRow {
-		return m.clickRow(y - listFirstRow)
+	if y >= m.listFirstRow() {
+		return m.clickRow(y - m.listFirstRow())
 	}
 	return m, nil
 }
@@ -80,7 +75,7 @@ func (m model) handleClick(x, y int) (tea.Model, tea.Cmd) {
 // way that column is usually read (biggest-first for numbers, A-to-Z for
 // text), and clicking the column you're already sorted by reverses it.
 func (m *model) clickHeader(x int) (tea.Model, tea.Cmd) {
-	key := colAt(m.cols(m.contentW()), x)
+	key := colAt(m.cols(boxInner(m.contentW())), x)
 	if key == "" {
 		return *m, nil
 	}
@@ -99,7 +94,7 @@ func (m *model) clickHeader(x int) (tea.Model, tea.Cmd) {
 // clickFinding makes the status line what it looks like: a link. Clicking a
 // finding goes to the rows it is about.
 func (m *model) clickFinding(x int) (tea.Model, tea.Cmd) {
-	regions, _ := statusLayout(m.findings(), m.contentW())
+	regions, _ := statusLayout(m.findings(), boxInner(m.contentW()))
 	for _, r := range regions {
 		if x >= r.x0 && x < r.x1 {
 			return m.applyJump(r.f)

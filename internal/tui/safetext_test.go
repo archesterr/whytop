@@ -19,7 +19,7 @@ func TestUntrustedTextCannotDriveTheTerminal(t *testing.T) {
 
 	for name, out := range map[string]string{
 		"process table": m.renderProcs(132, 10),
-		"header":        m.renderHeader(132),
+		"header":        m.renderHeaderPanel(132),
 		"detail":        model{snap: snap, width: 132, detail: &detailState{pid: 1234, loaded: true, journal: evil}}.renderDetail(132, 30),
 	} {
 		for _, bad := range []string{"\x1b", "\r", "\x07"} {

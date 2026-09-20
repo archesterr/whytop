@@ -2,9 +2,7 @@ package tui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -45,20 +43,17 @@ func (m model) View() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(m.renderHeader(w))
-	b.WriteString("\n")
-	b.WriteString(m.renderVitals(w))
-	b.WriteString("\n")
-	b.WriteString(m.renderStatus(w))
+	b.WriteString(m.renderHeaderPanel(w))
 	b.WriteString("\n")
 
-	if m.hosts != nil {
-		b.WriteString(m.renderHosts(w, h))
-	} else if m.detail != nil {
-		b.WriteString(m.renderDetail(w, h))
-	} else {
-		b.WriteString(hrule(w))
-		b.WriteString("\n")
+	switch {
+	case m.help:
+		b.WriteString(m.boxed(w, "KEYS", m.renderHelp(boxInner(w))))
+	case m.hosts != nil:
+		b.WriteString(m.boxed(w, "HOSTS", m.renderHosts(boxInner(w), h)))
+	case m.detail != nil:
+		b.WriteString(m.boxed(w, "PROCESS", m.renderDetail(boxInner(w), h)))
+	default:
 		b.WriteString(m.renderList(w, h))
 	}
 	b.WriteString("\n")
@@ -99,218 +94,11 @@ func (m model) View() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m model) renderHeader(w int) string {
-	s := m.snap
-	status := stOK.Render("● live") + "  " + stAccent.Render(time.Now().Format("15:04:05"))
-	if m.paused {
-		status = stWarn.Render("● paused") + "  " + stAccent.Render(time.Now().Format("15:04:05"))
-	}
-
-	warnNote := ""
-	if !s.Root {
-		warnNote = "  limited view: run with sudo"
-	}
-	logo := "whytop"
-	if m.opt.Version != "" {
-		logo += " " + m.opt.Version
-	}
-	// A long hostname or a narrow terminal (an 80-column SSH default is
-	// common) can't be allowed to overflow: unlike the tab bar, this row's
-	// budget assumption (renderTab's avail := h-6) breaks if the header
-	// wraps onto a second physical line. Every variable-length piece's
-	// budget is derived from w itself, not a fixed constant — a fixed cap
-	// still overflows once w drops below it.
-	reserved := len(logo) + 2 + 2 + len(warnNote) + lipgloss.Width(status) + 1
-	avail := max0(w - reserved)
-	hostBudget := avail
-	if hostBudget > 40 {
-		hostBudget = 40 // don't let a long hostname alone hog a wide terminal
-	}
-	host := truncate(safeText(s.Host), hostBudget)
-	metaBudget := max0(avail - lipgloss.Width(host) - 2)
-	// The distribution and kernel go here rather than in the vitals block:
-	// they never change while whytop runs, so they belong with the other
-	// facts about *which machine this is* rather than among the numbers you
-	// are watching move.
-	osBit := ""
-	if s.OS != "" {
-		osBit = " · " + s.OS
-		if s.Kernel != "" {
-			osBit += " (" + s.Kernel + ")"
-		}
-	}
-	meta := truncate(fmt.Sprintf("up %s · %d cores · %d processes%s", dur(s.Uptime), s.CPU.Cores, len(s.Procs), safeText(osBit)), metaBudget)
-
-	left := stLogo.Render(logo) + "  " + m.hostBadge() + stHost.Render(host) + "  " + stMuted.Render(meta)
-	if warnNote != "" {
-		left += stWarn.Render(warnNote)
-	}
-	gap := w - lipgloss.Width(left) - lipgloss.Width(status)
-	if gap < 1 {
-		gap = 1
-	}
-	return left + strings.Repeat(" ", gap) + status
-}
-
-// hostBadge marks a remote host, and marks nothing at all on the local one.
-// Forgetting which machine you are looking at is how the wrong process gets
-// killed, so the distinction is a coloured chip rather than a word in a
-// sentence — but localhost is the overwhelmingly common case and does not
-// need decorating.
 func (m model) hostBadge() string {
 	if m.remote == nil {
 		return ""
 	}
 	return stRemote.Render(" ssh ") + " "
-}
-
-func (m model) renderVitals(w int) string {
-	s := m.snap
-	c, mem := s.CPU, s.Mem
-	cores := c.Cores
-	if cores == 0 {
-		cores = 1
-	}
-	dstate := 0
-	for _, p := range s.Procs {
-		if p.State == "D" {
-			dstate++
-		}
-	}
-	ioSub := "nothing blocked on I/O"
-	if dstate > 0 {
-		ioSub = stCrit.Render(fmt.Sprintf("%d blocked on I/O", dstate))
-	}
-	psiVal, psiSub := "–", "unsupported"
-	psiStyle, psiFrac := stMuted, 0.0
-	if s.PSI.Available {
-		worst := max3(s.PSI.CPUSome, s.PSI.MemSome, s.PSI.IOSome)
-		psiVal = f1(worst) + "%"
-		psiSub = fmt.Sprintf("cpu %s mem %s io %s", f1(s.PSI.CPUSome), f1(s.PSI.MemSome), f1(s.PSI.IOSome))
-		psiStyle, psiFrac = lvl(worst, 5, 20), worst/100
-	}
-
-	perCore := s.Load1 / float64(cores)
-	// Each card carries its own hue so the five read as five things rather
-	// than one striped block — and the gauge switches to warn/crit colours
-	// once the number is worth looking at, so the card that matters is the
-	// one that changes colour rather than just the one with a longer bar.
-	vitals := []struct {
-		label string
-		style lipgloss.Style
-		value string
-		sub   string
-		frac  float64
-		hue   lipgloss.Style
-	}{
-		{"CPU", lvl(c.Busy, 70, 90), f1(c.Busy) + "%", fmt.Sprintf("user %s sys %s", f1(c.User), f1(c.System)), c.Busy / 100, stAccent},
-		{"MEM", lvl(mem.UsedPct, 80, 92), f1(mem.UsedPct) + "%", fmt.Sprintf("%s / %s", bytesFmt(float64(mem.Used)), bytesFmt(float64(mem.Total))), mem.UsedPct / 100, lipgloss.NewStyle().Foreground(colMem)},
-		{"I/O WAIT", lvl(c.Iowait, 3, 10), f1(c.Iowait) + "%", stripANSI(ioSub), c.Iowait / 100, lipgloss.NewStyle().Foreground(colIO)},
-		{"LOAD", lvl(perCore, 0.7, 1), fmt.Sprintf("%.2f", s.Load1), fmt.Sprintf("%.2f per core", perCore), perCore, lipgloss.NewStyle().Foreground(colLoad)},
-		{"PSI", psiStyle, psiVal, psiSub, psiFrac, lipgloss.NewStyle().Foreground(colPSI)},
-	}
-	// No hard minimum here beyond what keeps labels legible: an 80-column
-	// terminal (the standard SSH default) only leaves room for colW=15, and
-	// a floor above that would silently overflow the row on exactly the
-	// most common terminal width there is.
-	colW := (w - 4) / 5
-	if colW < 10 {
-		colW = 10
-	}
-
-	// Build exactly two physical lines per row (label, value+sub) with our
-	// own truncation/padding — letting lipgloss auto-wrap on Width() instead
-	// would silently spill a cell onto a third line and misalign every
-	// column after it.
-	var line1, line2 []string
-	for _, v := range vitals {
-		// The gauge shares the label's line rather than taking a third row:
-		// the vitals block is fixed at two lines everywhere else in the
-		// layout, and a screen of rows is worth more than a taller meter.
-		head := stHeader.Render(v.label)
-		// Capped, not "as wide as the cell": stretched across a 190-column
-		// terminal a meter becomes a 30-character rule that reads as a
-		// divider rather than as a measurement. Past about this width the
-		// extra cells add no precision you could see anyway.
-		barW := colW - len(v.label) - 2
-		if barW > 18 {
-			barW = 18
-		}
-		if barW >= 6 {
-			// A calm metric keeps its own hue; a worrying one takes the
-			// colour of the number above it.
-			fill := v.hue
-			if v.style.GetForeground() == colWarn || v.style.GetForeground() == colCrit {
-				fill = v.style
-			}
-			head += " " + gauge(v.frac, barW, fill)
-		}
-		line1 = append(line1, pad(head, colW, false))
-		budget := max0(colW - len(v.value) - 2)
-		line2 = append(line2, pad(v.style.Bold(true).Render(v.value)+"  "+stMuted.Render(truncate(v.sub, budget)), colW, false))
-	}
-	return strings.Join(line1, " ") + "\n" + strings.Join(line2, " ") + "\n" + m.renderCores(w)
-}
-
-// renderCores draws every core as its own small bar.
-//
-// A 12-core box averaging 8% looks idle right up until you notice one core
-// pinned at 100%, which is what a single-threaded bottleneck looks like from
-// the outside — and the average in the CPU card above is exactly the
-// statistic that hides it. This is the one line on the screen that shows the
-// shape of the load rather than its total.
-func (m model) renderCores(w int) string {
-	cores := m.snap.CPU.PerCore
-	if len(cores) == 0 || w < 12 {
-		return ""
-	}
-	// Each core needs its number, a bar and a space. On a wide terminal the
-	// bars grow; on a narrow one, or a machine with many cores, they shrink
-	// to a minimum and then the row simply stops rather than wrapping — a
-	// wrapped line here would push a row of real data off the bottom.
-	label := len(strconv.Itoa(len(cores) - 1))
-	const minBar = 3
-	per := w / len(cores)
-	barW := per - label - 2
-	if barW > 10 {
-		barW = 10
-	}
-	shown := len(cores)
-	if barW < minBar {
-		barW = minBar
-		shown = w / (minBar + label + 2)
-	}
-	if shown < 1 {
-		return ""
-	}
-
-	var b strings.Builder
-	for i := 0; i < shown && i < len(cores); i++ {
-		if i > 0 {
-			b.WriteString(" ")
-		}
-		v := cores[i]
-		// Per-core thresholds are higher than the machine-wide ones: one
-		// core at 90% is normal on any box doing work, while the whole
-		// machine at 90% is not.
-		fill := stCore
-		switch {
-		case v >= 95:
-			fill = stCrit
-		case v >= 80:
-			fill = stWarn
-		}
-		b.WriteString(stFaint.Render(pad2(strconv.Itoa(i), label)))
-		b.WriteString(stFaint.Render("["))
-		b.WriteString(gauge(v/100, barW, fill))
-		b.WriteString(stFaint.Render("]"))
-	}
-	if shown < len(cores) {
-		if rest := fmt.Sprintf(" +%d", len(cores)-shown); visLen(b.String())+len(rest) <= w {
-			b.WriteString(stFaint.Render(rest))
-		}
-	}
-	return truncateANSI(b.String(), w)
 }
 
 func stripANSI(s string) string {
@@ -361,8 +149,49 @@ func (m model) listRowsBudget() int {
 	return m.listBudget(m.height) - 1
 }
 
+// listHeaderRow is the screen row the column header lands on, and
+// listFirstRow the first data row: the panel, then the list's top border.
+// Click hit-testing derives both from the same arithmetic the renderer
+// uses, so growing the panel can never send clicks to the wrong row.
+func (m model) listHeaderRow() int { return m.headerHeight() + 1 }
+func (m model) listFirstRow() int  { return m.listHeaderRow() + 1 }
+
+// statusRow is the verdict line inside the panel — the second-to-last row
+// of it, above the bottom border.
+func (m model) statusRow() int { return m.headerHeight() - 2 }
+
+// renderList frames the process table. The frame is what makes a dense
+// table read as one object instead of as loose rows of text, and it is
+// where the count of what is being shown belongs — on the edge, next to
+// the thing it counts.
 func (m model) renderList(w, h int) string {
-	return m.renderProcs(w, m.listBudget(h))
+	rows := m.listBudget(h)
+	title := "PROCESSES"
+	right := fmt.Sprintf("%d of %d", len(m.procRows()), len(m.snap.Procs))
+	body := strings.Split(m.renderProcs(boxInner(w), rows), "\n")
+	out := []string{boxTop(w, title, right)}
+	for _, line := range body {
+		out = append(out, boxLine(w, line))
+	}
+	// A box whose height follows its contents would move the footer every
+	// time a process started, so the frame is always the same height.
+	for i := len(body); i < rows; i++ {
+		out = append(out, boxLine(w, ""))
+	}
+	out = append(out, boxBottom(w))
+	return strings.Join(out, "\n")
+}
+
+// boxed frames a panel that is not the process list, so every full-screen
+// view in whytop has the same outline.
+func (m model) boxed(w int, title, content string) string {
+	body := strings.Split(content, "\n")
+	out := []string{boxTop(w, title, "")}
+	for _, line := range body {
+		out = append(out, boxLine(w, line))
+	}
+	out = append(out, boxBottom(w))
+	return strings.Join(out, "\n")
 }
 
 // listBudget is how many lines the table gets: everything except the fixed
@@ -371,7 +200,8 @@ func (m model) renderList(w, h int) string {
 // come from the same arithmetic or they disagree by one and every click
 // lands on the wrong row.
 func (m model) listBudget(h int) int {
-	const chrome = 7 // header + vitals(3) + status + rule + footer
+	// The panel above, the list's own two borders, and the footer.
+	chrome := m.headerHeight() + 2 + 1
 	if avail := h - chrome; avail >= 3 {
 		return avail
 	}
@@ -428,8 +258,11 @@ func (m model) renderFooter(w int) string {
 			follow = "f live-log: off"
 		}
 		keys = append(keys, [2]string{"j", "journal"}, [2]string{follow[:1], follow[2:]}, [2]string{"esc", "close"})
+	case m.help:
+		keys = [][2]string{{"h", "close help"}, {"q", "quit"}}
+
 	default:
-		keys = [][2]string{{"↑↓", "select"}, {"enter", "open"}, {"/", "filter"}}
+		keys = [][2]string{{"↑↓", "select"}, {"enter", "open"}, {"/", "search"}, {"k", "kill"}, {"t", "tree"}}
 		// An active filter is the single most important thing to know about
 		// what is on screen: every row you are not seeing is hidden by it,
 		// and a list that silently shows a subset is how people end up
@@ -451,8 +284,8 @@ func (m model) renderFooter(w int) string {
 		if m.lockOrder {
 			lock = "order: LOCKED"
 		}
-		keys = append(keys, [2]string{"s", "sort"}, [2]string{"L", lock}, [2]string{"K", "kernel"},
-			[2]string{"H", "hosts"}, [2]string{"p", "pause"}, [2]string{"q", "quit"})
+		keys = append(keys, [2]string{"<>", "sort"}, [2]string{"L", lock}, [2]string{"@", "hosts"},
+			[2]string{"h", "help"}, [2]string{"q", "quit"})
 	}
 	var parts []string
 	for _, k := range keys {

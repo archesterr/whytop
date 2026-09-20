@@ -41,7 +41,72 @@ func (m model) procRows() []collect.Proc {
 		list = out
 	}
 
+	if m.tree {
+		return treeOrder(list, m.sortKey, m.sortDir)
+	}
 	return m.order(list)
+}
+
+// treeOrder arranges the list as a forest: every process under the one that
+// started it, each level sorted the way the flat list would be. This is
+// htop's t, and it answers a question the flat list cannot — "what spawned
+// all of these?" — which on a box full of identical worker processes is
+// usually the only question worth asking.
+//
+// A process whose parent was filtered out is a root here. That keeps a
+// filtered tree honest: showing an ancestor that does not match the filter
+// would be inventing a row the operator did not ask for.
+func treeOrder(list []collect.Proc, sortKey string, dir int) []collect.Proc {
+	present := make(map[int32]bool, len(list))
+	for _, p := range list {
+		present[p.PID] = true
+	}
+	kids := map[int32][]collect.Proc{}
+	var roots []collect.Proc
+	for _, p := range list {
+		if p.PPID > 0 && p.PPID != p.PID && present[p.PPID] {
+			kids[p.PPID] = append(kids[p.PPID], p)
+			continue
+		}
+		roots = append(roots, p)
+	}
+	sortProcs(roots, sortKey, dir)
+	for pid := range kids {
+		sortProcs(kids[pid], sortKey, dir)
+	}
+
+	out := make([]collect.Proc, 0, len(list))
+	seen := make(map[int32]bool, len(list))
+	var walk func(p collect.Proc, depth int)
+	walk = func(p collect.Proc, depth int) {
+		// A /proc read is not atomic, so a parent cycle is possible in
+		// principle; without this guard it would be an infinite loop
+		// rather than a wrong row.
+		if seen[p.PID] {
+			return
+		}
+		seen[p.PID] = true
+		p.Depth = depth
+		out = append(out, p)
+		for _, c := range kids[p.PID] {
+			walk(c, depth+1)
+		}
+	}
+	for _, r := range roots {
+		walk(r, 0)
+	}
+	// Anything a cycle left unreachable is shown flat rather than dropped.
+	// Two processes each claiming the other as parent have no root between
+	// them, and a tree view that silently loses rows is worse than one that
+	// draws an odd shape — the list is what people count processes in.
+	if len(out) < len(list) {
+		for _, p := range list {
+			if !seen[p.PID] {
+				walk(p, 0)
+			}
+		}
+	}
+	return out
 }
 
 // order applies the current sort — or, when the order is locked, replays the
@@ -173,6 +238,11 @@ func sortProcs(list []collect.Proc, sortKey string, dir int) []collect.Proc {
 			x, y = a.NetRxBps+a.NetTxBps, b.NetRxBps+b.NetTxBps
 		case "port":
 			x, y = portKey(a), portKey(b)
+		case "time":
+			// T in htop and top sorts by how long a process has been
+			// running, so the oldest — and by default the newest — are
+			// together rather than scattered.
+			x, y = float64(a.Started.UnixNano()), float64(b.Started.UnixNano())
 		case "pid":
 			x, y = float64(a.PID), float64(b.PID)
 		default: // cpu

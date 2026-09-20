@@ -16,7 +16,7 @@ type procCol struct {
 // shows them the least interesting end of the list.
 func numericSort(key string) bool {
 	switch key {
-	case "cpu", "mem", "read", "write", "io", "net", "rx", "tx", "port":
+	case "cpu", "mem", "read", "write", "io", "net", "rx", "tx", "port", "time":
 		return true
 	}
 	return false
