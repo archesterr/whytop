@@ -87,6 +87,7 @@ var (
 	stCore       = lipgloss.NewStyle().Foreground(colCore)
 	stFilterChip = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colPort)
 	stFilterOn   = lipgloss.NewStyle().Foreground(colPort)
+	stRemote     = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colIO)
 )
 
 // colSep visibly separates table columns — a first-time user shouldn't have

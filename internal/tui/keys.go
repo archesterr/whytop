@@ -22,6 +22,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	}
+	if m.hosts != nil {
+		return m.handleHostKey(msg)
+	}
 	if m.detail != nil {
 		return m.handleDetailKey(msg)
 	}
@@ -108,6 +111,8 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.showToast("Order locked: rows stay put while their numbers change. L unlocks.", true)
 		}
 		return m.showToast("Order live again: rows re-sort as usage changes.", true)
+	case "H":
+		return m.openHosts()
 	case "K":
 		m.showKernel = !m.showKernel
 		if m.showKernel {
@@ -193,7 +198,34 @@ func (m *model) openSelected() (tea.Model, tea.Cmd) {
 	return *m, tea.Batch(m.loadExtraCmd(pid), m.loadJournalCmd(pid))
 }
 
+// localOnly refuses an action that would run on the wrong machine.
+//
+// Every action whytop can take — signals, systemctl, truncating a
+// descriptor — runs through internal/actions, which acts on the machine
+// whytop is running on. While a remote host is being viewed, the PID under
+// the cursor belongs to that host, and running a kill with it locally would
+// signal whatever process happens to hold that number here. That is not a
+// missing feature to be papered over with a best effort; it is the single
+// most dangerous thing this tool could do, so it is refused by name.
+func (m *model) localOnly(what string) (tea.Model, tea.Cmd, bool) {
+	if m.remote == nil {
+		return *m, nil, false
+	}
+	mm, cmd := m.showToast(what+" acts on the machine whytop is running on, so it is disabled while viewing "+
+		m.hostLabel()+". Press H to come back to localhost.", false)
+	return mm, cmd, true
+}
+
 func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "x", "X", "r", "e", "t", "c":
+		// Guarded together rather than one by one: a new action added
+		// below should have to opt *out* of this check, not remember to
+		// opt in.
+		if mm, cmd, blocked := m.localOnly(actionName(msg.String())); blocked {
+			return mm, cmd
+		}
+	}
 	switch msg.String() {
 	case "q":
 		m.quitting = true
@@ -306,6 +338,23 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func actionName(key string) string {
+	switch key {
+	case "x":
+		return "Stopping a process"
+	case "X":
+		return "Force-killing a process"
+	case "r":
+		return "Restarting a unit"
+	case "e":
+		return "Editing a unit file"
+	case "t":
+		return "Emptying a file"
+	default:
+		return "Closing a descriptor"
+	}
 }
 
 // showToast sets a toast message with an auto-clear timer, for feedback that
