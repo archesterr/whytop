@@ -145,16 +145,13 @@ func TestCentringAndClickOffsetAgree(t *testing.T) {
 }
 
 // A count in the tab bar has to be worth the space it takes. "5 disks" isn't
-// — you see them the moment you open the tab — while failed units are the
-// whole reason to go there.
+// — you see them the moment you open the tab — while the number of processes
+// the list is actually showing is something you can't get any other way.
 func TestTabCountsOnlyCarryUsefulNumbers(t *testing.T) {
 	snap := &collect.Snapshot{
 		Procs: []collect.Proc{{PID: 1, Cmdline: "/sbin/init"}},
 		Disks: []collect.Disk{{Name: "sda"}, {Name: "sdb"}},
 		NICs:  []collect.NIC{{Name: "eth0"}},
-		Units: []collect.Unit{{Name: "ok.service", Active: "active"}, {Name: "bad.service", Active: "failed"}},
-
-		UnitsCollected: true,
 	}
 	snap.ByPID = map[int32]int{1: 0}
 	m := model{snap: snap, sortKey: "pid"}
@@ -162,15 +159,7 @@ func TestTabCountsOnlyCarryUsefulNumbers(t *testing.T) {
 	if counts[tabDisks] != -1 || counts[tabNet] != -1 {
 		t.Errorf("Disks/Network should carry no count, got %d/%d", counts[tabDisks], counts[tabNet])
 	}
-	if counts[tabUnits] != 1 {
-		t.Errorf("Units should count only failed units, got %d", counts[tabUnits])
-	}
-	if !m.tabAlerts()[tabUnits] {
-		t.Error("a failed unit should flag its tab")
-	}
-
-	snap.Units = []collect.Unit{{Name: "ok.service", Active: "active"}}
-	if got := m.tabCounts()[tabUnits]; got != -1 {
-		t.Errorf("with nothing failed the Units tab should show no number, got %d", got)
+	if counts[tabProcs] != 1 {
+		t.Errorf("Processes should count the rows the list shows, got %d", counts[tabProcs])
 	}
 }

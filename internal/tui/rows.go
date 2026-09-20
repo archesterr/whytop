@@ -45,7 +45,7 @@ func (m model) procRows() []collect.Proc {
 					out = append(out, p)
 				}
 			}
-			return sortProcs(out, m.sortKey, m.sortDir)
+			return m.order(out)
 		}
 		out := list[:0]
 		for _, p := range list {
@@ -57,7 +57,57 @@ func (m model) procRows() []collect.Proc {
 		list = out
 	}
 
-	return sortProcs(list, m.sortKey, m.sortDir)
+	return m.order(list)
+}
+
+// order applies the current sort — or, when the order is locked, replays the
+// order the rows were in when it was locked.
+//
+// Sorting by CPU is the right default and the reason the list is unreadable
+// the moment you try to act on it: the row you are reaching for moves out
+// from under the cursor every refresh, because that is exactly what a busy
+// process does. Locking freezes the arrangement without freezing the numbers
+// — unlike pause (p), which stops collecting altogether and leaves you
+// reading figures that are no longer true.
+func (m model) order(list []collect.Proc) []collect.Proc {
+	if !m.lockOrder || m.lockRank == nil {
+		return sortProcs(list, m.sortKey, m.sortDir)
+	}
+	// Processes that started after the lock have no frozen position. They
+	// sort among themselves in the normal order for the column and sit below
+	// the frozen block, where they can be seen arriving instead of being
+	// silently inserted into the middle of a list someone is reading.
+	frozen := make([]collect.Proc, 0, len(list))
+	fresh := make([]collect.Proc, 0, 8)
+	for _, p := range list {
+		if _, ok := m.lockRank[p.PID]; ok {
+			frozen = append(frozen, p)
+		} else {
+			fresh = append(fresh, p)
+		}
+	}
+	sort.SliceStable(frozen, func(i, j int) bool {
+		return m.lockRank[frozen[i].PID] < m.lockRank[frozen[j].PID]
+	})
+	return append(frozen, sortProcs(fresh, m.sortKey, m.sortDir)...)
+}
+
+// relock re-captures the frozen order from what is on screen right now. It
+// runs when the lock is turned on, and again whenever the operator changes
+// the sort while locked — otherwise picking a new column would do nothing
+// visible, and the lock would read as broken rather than as locked.
+func (m *model) relock() {
+	if !m.lockOrder {
+		m.lockRank = nil
+		return
+	}
+	m.lockRank = nil // so procRows below sorts live rather than replaying the old lock
+	rows := m.procRows()
+	rank := make(map[int32]int, len(rows))
+	for i, p := range rows {
+		rank[p.PID] = i
+	}
+	m.lockRank = rank
 }
 
 func sortProcs(list []collect.Proc, sortKey string, dir int) []collect.Proc {

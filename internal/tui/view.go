@@ -300,11 +300,6 @@ func (m model) tabAlerts() map[tab]bool {
 			out[tabNet] = true
 		}
 	}
-	for _, u := range s.Units {
-		if u.Active == "failed" {
-			out[tabUnits] = true
-		}
-	}
 	return out
 }
 
@@ -319,20 +314,6 @@ func (m model) tabCounts() map[tab]int {
 			}
 		}
 	}
-	// Units counts what's broken, not what exists: "225 units" is trivia you
-	// can't act on, "3 failed" is the reason to open the tab.
-	units := -1
-	if s.UnitsCollected {
-		failed := 0
-		for _, u := range s.Units {
-			if u.Active == "failed" {
-				failed++
-			}
-		}
-		if failed > 0 {
-			units = failed // a red count that only shows up when it means something
-		}
-	}
 	// Disks and Network carry no count at all — five devices and four
 	// interfaces are facts you can see the moment you open the tab, so
 	// putting them in the tab bar only adds numbers to skip over.
@@ -340,7 +321,7 @@ func (m model) tabCounts() map[tab]int {
 	// Processes counts what the list actually shows, not every PID on the
 	// system: a count that disagrees with the rows under it is a bug report
 	// waiting to happen.
-	return map[tab]int{tabProcs: len(m.procRows()), tabPorts: listen, tabDisks: -1, tabNet: -1, tabUnits: units}
+	return map[tab]int{tabProcs: len(m.procRows()), tabPorts: listen, tabDisks: -1, tabNet: -1}
 }
 
 // hrule draws a thin horizontal rule under the tab bar, separating chrome
@@ -377,10 +358,8 @@ func (m model) renderTab(w, h int) string {
 		return m.renderPorts(w, avail)
 	case tabDisks:
 		return m.renderDisks(w, avail)
-	case tabNet:
-		return m.renderNet(w, avail)
 	default:
-		return m.renderUnits(w, avail)
+		return m.renderNet(w, avail)
 	}
 }
 
@@ -406,6 +385,9 @@ func (m model) renderFooter(w int) string {
 			keys = [][2]string{{"↑↓", "tree"}, {"tab", "files"}, {"enter", "open"}}
 		}
 		keys = append(keys, [2]string{"x", "stop"}, [2]string{"X", "kill"})
+		if p, ok := m.procByPID(m.detail.pid); ok && p.Unit != "" && !p.UnitUser {
+			keys = append(keys, [2]string{"e", "edit unit"})
+		}
 		if !m.detail.loaded || m.detail.restartBlocked == "" {
 			keys = append(keys, [2]string{"r", "restart"})
 		}
@@ -418,14 +400,13 @@ func (m model) renderFooter(w int) string {
 		// Only advertise keys that actually do something on this tab. Disks
 		// and Network have no selectable rows, and a footer offering "enter
 		// open" where nothing opens teaches people not to trust the footer.
-		keys = [][2]string{{"1-5/←→", "tabs"}}
+		keys = [][2]string{{"1-4/←→", "tabs"}}
 		// Only offered when there's something to jump to — a key that does
 		// nothing on a healthy box is a key people learn to ignore.
 		if len(m.findings()) > 0 {
 			keys = append(keys, [2]string{"g", "go to problem"})
 		}
-		selectable := m.tab == tabProcs || m.tab == tabPorts || m.tab == tabUnits
-		if selectable {
+		if m.tab == tabProcs || m.tab == tabPorts {
 			keys = append(keys, [2]string{"↑↓", "select"})
 		}
 		if m.tab == tabProcs || m.tab == tabPorts {
@@ -434,13 +415,17 @@ func (m model) renderFooter(w int) string {
 		if m.tab == tabProcs {
 			// Not "sort: cpu" — the arrow in the column header already says
 			// which column, and says it where you're looking.
-			keys = append(keys, [2]string{"s", "sort"}, [2]string{"K", "kernel"})
+			// The lock hint names the state it is in, not the state it would
+			// switch to: an operator glancing down needs to know whether the
+			// rows under them are moving, more than what L does next.
+			lock := "L order: live"
+			if m.lockOrder {
+				lock = "L order: LOCKED"
+			}
+			keys = append(keys, [2]string{"s", "sort"}, [2]string{"L", lock[2:]}, [2]string{"K", "kernel"})
 		}
 		if m.tab == tabPorts {
 			keys = append(keys, [2]string{"a", "all sockets"})
-		}
-		if m.tab == tabUnits {
-			keys = append(keys, [2]string{"e", "edit unit"})
 		}
 		keys = append(keys, [2]string{"p", "pause"}, [2]string{"q", "quit"})
 	}

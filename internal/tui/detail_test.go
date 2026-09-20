@@ -99,19 +99,6 @@ func TestJournalFollowsByDefaultAndSaysSo(t *testing.T) {
 	}
 }
 
-// A unit's memory is the memory of its processes — free to compute, since
-// they're already collected with the unit they belong to.
-func TestUnitMemorySumsItsProcesses(t *testing.T) {
-	m := model{snap: detailSnap()}
-	mem := m.unitMemory()
-	if got := mem["nginx.service"]; got != 8<<20 {
-		t.Errorf("nginx.service memory = %d, want the 8 MiB its two processes use", got)
-	}
-	if _, ok := mem["stopped.service"]; ok {
-		t.Error("a unit with no processes should have no entry, so it can render as – not 0 B")
-	}
-}
-
 func keyRunes(s string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
