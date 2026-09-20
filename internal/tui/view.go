@@ -48,11 +48,11 @@ func (m model) View() string {
 
 	switch {
 	case m.help:
-		b.WriteString(m.boxed(w, "KEYS", m.renderHelp(boxInner(w))))
+		b.WriteString(m.boxed(w, h, "KEYS", "", m.renderHelp(boxInner(w))))
 	case m.hosts != nil:
-		b.WriteString(m.boxed(w, "HOSTS", m.renderHosts(boxInner(w), h)))
+		b.WriteString(m.boxed(w, h, "HOSTS", m.hosts.configPath, m.renderHosts(boxInner(w), h)))
 	case m.detail != nil:
-		b.WriteString(m.boxed(w, "PROCESS", m.renderDetail(boxInner(w), h)))
+		b.WriteString(m.boxed(w, h, "PROCESS", "esc closes", m.renderDetail(boxInner(w), h)))
 	default:
 		b.WriteString(m.renderList(w, h))
 	}
@@ -131,16 +131,6 @@ func max3(a, b, c float64) float64 {
 	return m
 }
 
-// hrule draws a thin horizontal rule under the tab bar, separating chrome
-// from data — the same visual cue k9s/lazydocker use to make the screen read
-// as distinct panels instead of one undifferentiated block of text.
-func hrule(w int) string {
-	if w < 1 {
-		w = 1
-	}
-	return stFaint.Render(strings.Repeat("─", w))
-}
-
 // listRowsBudget is the number of data rows renderProcs actually draws
 // (column-header line already subtracted) — mouse click hit-testing needs
 // the exact same number to translate a screen row back into a list index,
@@ -169,6 +159,13 @@ func (m model) renderList(w, h int) string {
 	title := "PROCESSES"
 	right := fmt.Sprintf("%d of %d", len(m.procRows()), len(m.snap.Procs))
 	body := strings.Split(m.renderProcs(boxInner(w), rows), "\n")
+	// The table draws its column header, its rows and a scroll notice, and
+	// on a terminal short enough that those come to more than the frame
+	// can hold, the overflow would push the frame's own bottom border off
+	// the screen and leave the box open.
+	if len(body) > rows {
+		body = body[:rows]
+	}
 	out := []string{boxTop(w, title, right)}
 	for _, line := range body {
 		out = append(out, boxLine(w, line))
@@ -183,12 +180,27 @@ func (m model) renderList(w, h int) string {
 }
 
 // boxed frames a panel that is not the process list, so every full-screen
-// view in whytop has the same outline.
-func (m model) boxed(w int, title, content string) string {
+// view in whytop has the same outline — and the same height. A six-line
+// panel that closed six lines down left the rest of the terminal empty with
+// the footer stranded at the bottom of it, which reads as a half-drawn
+// screen rather than as a panel.
+func (m model) boxed(w, h int, title, right, content string) string {
+	rows := m.listBudget(h)
 	body := strings.Split(content, "\n")
-	out := []string{boxTop(w, title, "")}
+	// Content taller than the frame is cut with a notice rather than left
+	// to run past it. A panel that overflows doesn't merely lose its last
+	// lines — it pushes its own bottom border off the screen, and the box
+	// is then left open with the footer sitting inside it.
+	if len(body) > rows {
+		body = append(body[:max0(rows-1)],
+			stFaint.Render("… more than fits — a taller terminal shows the rest"))
+	}
+	out := []string{boxTop(w, title, right)}
 	for _, line := range body {
 		out = append(out, boxLine(w, line))
+	}
+	for i := len(body); i < rows; i++ {
+		out = append(out, boxLine(w, ""))
 	}
 	out = append(out, boxBottom(w))
 	return strings.Join(out, "\n")
@@ -200,12 +212,20 @@ func (m model) boxed(w int, title, content string) string {
 // come from the same arithmetic or they disagree by one and every click
 // lands on the wrong row.
 func (m model) listBudget(h int) int {
-	// The panel above, the list's own two borders, and the footer.
-	chrome := m.headerHeight() + 2 + 1
-	if avail := h - chrome; avail >= 3 {
+	// The panel above, the list's own two borders, the footer — and the
+	// very last row of the terminal, which View deliberately leaves empty
+	// (see the target arithmetic there). Forgetting that last row is not a
+	// harmless rounding error: it made every frame one line too tall, and
+	// the line that got cut was the bottom border, so every panel in the
+	// program rendered with its frame left open at the bottom.
+	chrome := m.headerHeight() + 2 + 1 + 1
+	if avail := h - chrome; avail > 1 {
 		return avail
 	}
-	return 3
+	// A terminal this short cannot show both, and the header has already
+	// given up everything it can (see headerBodyCap). One row of list is
+	// what is left; anything more would push the frame off the screen.
+	return 1
 }
 
 func (m model) renderFooter(w int) string {

@@ -11,7 +11,6 @@ var (
 	colPanel  = lipgloss.Color("#212733")
 	colLine   = lipgloss.Color("#313a4a")
 	colHdrBg  = lipgloss.Color("#2a3242")
-	colSecBg  = lipgloss.Color("#36425c") // section bars sit above column headers
 	colSelBg  = lipgloss.Color("#39507a")
 	colText   = lipgloss.Color("#d9dee7")
 	colMuted  = lipgloss.Color("#8b94a5")
@@ -42,6 +41,13 @@ var (
 	colPort     = lipgloss.Color("#f0c674") // a port someone can connect to
 	colCore     = lipgloss.Color("#6f9be0") // a core doing ordinary work
 	colLine2    = lipgloss.Color("#46516a") // the frame: visible, never loud
+	// Tree kinship. The selected process's own subtree is drawn in one
+	// colour, its ancestors in a quieter version of it, and everything else
+	// recedes — so "which of these PIDs are its children" is answered by
+	// looking rather than by reading.
+	colTreeKin  = lipgloss.Color("#ffc46b")
+	colTreeUp   = lipgloss.Color("#a37a42")
+	colTreeLine = lipgloss.Color("#4e5768")
 )
 
 var (
@@ -61,13 +67,9 @@ var (
 	stHdrBar    = lipgloss.NewStyle().Foreground(colFaint).Background(colHdrBg)
 	stHdrCell   = lipgloss.NewStyle().Foreground(colMuted).Bold(true).Background(colHdrBg)
 	stHdrCellOn = lipgloss.NewStyle().Foreground(colAccent).Bold(true).Background(colHdrBg)
-	// A section bar outranks a column-header bar, so it's the brighter of
-	// the two: section > columns > rows, readable at a glance.
-	stSection   = lipgloss.NewStyle().Foreground(colText).Bold(true).Background(colSecBg)
+	// A focused section outranks everything else on the panel: it is the
+	// list the arrow keys are driving.
 	stSectionOn = lipgloss.NewStyle().Foreground(colBg).Bold(true).Background(colAccent)
-	stTabOn     = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colAccent)
-	stTabOnCnt  = lipgloss.NewStyle().Foreground(colBg).Background(colAccent)
-	stTabOff    = lipgloss.NewStyle().Foreground(colMuted)
 	stFooterKey = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colMuted).Padding(0, 1)
 	stFooterTxt = lipgloss.NewStyle().Foreground(colMuted)
 	stDanger    = lipgloss.NewStyle().Bold(true).Foreground(colCrit)
@@ -86,6 +88,9 @@ var (
 	stNet        = lipgloss.NewStyle().Foreground(colNet)
 	stPort       = lipgloss.NewStyle().Foreground(colPort).Bold(true)
 	stCore       = lipgloss.NewStyle().Foreground(colCore)
+	stTreeKin    = lipgloss.NewStyle().Foreground(colTreeKin)
+	stTreeUp     = lipgloss.NewStyle().Foreground(colTreeUp)
+	stTreeLine   = lipgloss.NewStyle().Foreground(colTreeLine)
 	stFilterChip = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colPort)
 	stFilterOn   = lipgloss.NewStyle().Foreground(colPort)
 	stRemote     = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colIO)
@@ -136,16 +141,16 @@ func hdrCell(title string, w int, style lipgloss.Style) string {
 	return centerCell(title, w, style)
 }
 
-// sectionBar titles a block with a full-width bar. It's the line that
-// separates one section from the next: without it the detail view is one long
-// column of text with bare labels dropped into it, and nothing tells you
-// where the process tree ends and the open files begin.
+// sectionBar titles a block with a rule across the panel, the title let into
+// it the way a box's own title is. It's the line that separates one section
+// from the next: without it the detail view is one long column of text with
+// bare labels dropped into it, and nothing tells you where the process tree
+// ends and the open files begin.
+//
+// A rule rather than the solid bar it used to be: inside a framed panel a
+// second filled bar competes with the frame, where a rule continues it.
 func sectionBar(w int, title string) string {
-	bar := stSection.Render(" " + title + " ")
-	if n := max0(w - visLen(bar)); n > 0 {
-		bar += stSection.Render(strings.Repeat(" ", n))
-	}
-	return bar
+	return rule(w, title, stBoxTitle, stBox2)
 }
 
 // focusBar is a section bar that shows whether its list is the one the arrow
@@ -155,11 +160,16 @@ func focusBar(w int, title string, focused bool) string {
 	if !focused {
 		return sectionBar(w, title)
 	}
-	bar := stSectionOn.Render(" ▸ " + title + " ")
-	if n := max0(w - visLen(bar)); n > 0 {
-		bar += stSectionOn.Render(strings.Repeat(" ", n))
+	return rule(w, "▸ "+title, stSectionOn, stAccent)
+}
+
+func rule(w int, title string, titleStyle, lineStyle lipgloss.Style) string {
+	if w < 4 {
+		return lineStyle.Render(strings.Repeat("─", max0(w)))
 	}
-	return bar
+	t := truncate(title, max0(w-6))
+	head := lineStyle.Render("──") + titleStyle.Render(" "+t+" ")
+	return head + lineStyle.Render(strings.Repeat("─", max0(w-visLen(head))))
 }
 
 // tableHeader draws a column header as one solid bar across the table, the

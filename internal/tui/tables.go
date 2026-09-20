@@ -35,9 +35,20 @@ func withBG(st lipgloss.Style, selected bool) lipgloss.Style {
 // glyph that only the selected row has.
 const gutterW = 2
 
-func gutterCell(selected bool) string {
+// gutterCell draws the "which row is selected" marker, and — in tree view —
+// whether this row is part of the selected process's family. A colour-only
+// highlight is easy to lose track of while arrowing through a long list, and
+// a subtree that scrolls past the selected row would otherwise lose the one
+// cue that said it belonged to it.
+func gutterCell(selected bool, kin kinship) string {
 	if selected {
 		return cell("▸", gutterW, false, stAccent.Bold(true))
+	}
+	switch kin {
+	case kinChild:
+		return cell("┃", gutterW, false, stTreeKin)
+	case kinParent:
+		return cell("┊", gutterW, false, stTreeUp)
 	}
 	return cell("", gutterW, false, stPlain)
 }
@@ -121,15 +132,27 @@ func (m model) renderProcs(w, h int) string {
 			break
 		}
 	}
+	// The tree's guides and the kinship of every row to the selected one
+	// are computed over the whole list, not the visible window: a subtree
+	// that starts above the fold is still the selected process's subtree.
+	var tr []treeRow
+	if m.tree {
+		tr = treeRows(list, selIdx)
+	}
+
 	start, end := windowRows(len(list), selIdx, h-1)
 	for i := start; i < end; i++ {
 		p := list[i]
 		sel := i == selIdx
 		// Built from the same column list the header is, so a column that
 		// is dropped on a narrow terminal is dropped from both at once.
+		t := treeRow{}
+		if tr != nil {
+			t = tr[i]
+		}
 		rowCells := make([]string, 0, len(cols))
 		for _, c := range cols {
-			rowCells = append(rowCells, m.procCell(c, p, sel))
+			rowCells = append(rowCells, m.procCell(c, p, sel, t))
 		}
 		lines = append(lines, joinColsSel(sel, rowCells...))
 	}
@@ -159,12 +182,22 @@ func (m model) commandOf(p collect.Proc) string {
 }
 
 // procCell renders one column of one process row.
-func (m model) procCell(c procCol, p collect.Proc, sel bool) string {
+func (m model) procCell(c procCol, p collect.Proc, sel bool, t treeRow) string {
 	switch c.key {
 	case "":
-		return gutterCell(sel)
+		return gutterCell(sel, t.kin)
 	case "pid":
-		return cell(strconv.Itoa(int(p.PID)), c.w, true, withBG(stMuted, sel))
+		// In tree view the PID is where kinship is most worth saying: "which
+		// of these thirty PIDs are the ones under the row I selected" is the
+		// question the tree exists to answer.
+		st := stMuted
+		switch t.kin {
+		case kinChild:
+			st = stTreeKin
+		case kinParent:
+			st = stTreeUp
+		}
+		return cell(strconv.Itoa(int(p.PID)), c.w, true, withBG(st, sel))
 	case "user":
 		return userCell(p.User, c.w, sel)
 	case "state":
@@ -186,7 +219,7 @@ func (m model) procCell(c procCol, p collect.Proc, sel bool) string {
 	case "unit":
 		return cell(unitName(p.Unit), c.w, false, withBG(stAccent, sel))
 	default:
-		return cmdCellAt(m.commandOf(p), p.Depth, c.w, sel)
+		return cmdCellAt(m.commandOf(p), t, c.w, sel)
 	}
 }
 

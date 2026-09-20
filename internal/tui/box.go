@@ -60,6 +60,23 @@ func boxTop(w int, title, right string) string {
 	return left + stBox2.Render(strings.Repeat(boxH, max0(w-used))) + tail + stBox2.Render(boxTR)
 }
 
+// boxRuleAt is boxRule with a junction let into it at column `at`, where an
+// interior vertical divider meets the rule. It is the difference between a
+// panel that reads as two panes inside one frame and one that reads as a
+// line drawn over two unrelated columns.
+func boxRuleAt(w int, at ...int) string {
+	if w < 2 {
+		return ""
+	}
+	row := []rune(strings.Repeat(boxH, w-2))
+	for _, a := range at {
+		if a >= 1 && a <= w-2 {
+			row[a-1] = []rune(boxBUp)[0]
+		}
+	}
+	return stBox2.Render(boxVL + string(row) + boxVR)
+}
+
 func boxBottom(w int) string {
 	if w < 2 {
 		return ""

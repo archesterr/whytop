@@ -158,3 +158,43 @@ func TestToastGenerationPreventsEarlyClear(t *testing.T) {
 		t.Errorf("the current toast's own clear timer should have cleared it, toast=%q", m3.(model).toast)
 	}
 }
+
+// Every frame the program draws must close the boxes it opens, in every
+// view and at every size. A panel taller than the space it was given used
+// to push its own bottom border off the screen, which left the box open
+// with the footer sitting inside it — and because the footer is pinned to
+// the last row, it looked like a rendering glitch rather than a layout bug.
+func TestEveryFrameClosesItsBoxes(t *testing.T) {
+	snap := testSnap()
+	views := map[string]func(m *model){
+		"list":   func(m *model) {},
+		"help":   func(m *model) { m.help = true },
+		"tree":   func(m *model) { m.tree = true },
+		"detail": func(m *model) { m.detail = &detailState{pid: 42} },
+		"hosts":  func(m *model) { m.hosts = &hostPanel{} },
+	}
+	for name, setup := range views {
+		for _, w := range []int{60, 80, 100, 150, 200} {
+			for _, h := range []int{10, 14, 16, 20, 24, 30, 50} {
+				m := model{snap: snap, sortKey: "cpu", width: w, height: h}
+				setup(&m)
+				lines := strings.Split(m.View(), "\n")
+				opens, closes := 0, 0
+				for _, l := range lines {
+					switch {
+					case strings.HasPrefix(stripANSI(l), boxTL):
+						opens++
+					case strings.HasPrefix(stripANSI(l), boxBL):
+						closes++
+					}
+				}
+				if opens != closes {
+					t.Errorf("%s at %dx%d: opened %d boxes, closed %d", name, w, h, opens, closes)
+				}
+				if len(lines) > h {
+					t.Errorf("%s at %dx%d: drew %d lines, more than the terminal has", name, w, h, len(lines))
+				}
+			}
+		}
+	}
+}
