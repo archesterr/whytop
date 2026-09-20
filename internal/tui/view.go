@@ -419,6 +419,11 @@ func (m model) renderFooter(w int) string {
 		// and Network have no selectable rows, and a footer offering "enter
 		// open" where nothing opens teaches people not to trust the footer.
 		keys = [][2]string{{"1-5/←→", "tabs"}}
+		// Only offered when there's something to jump to — a key that does
+		// nothing on a healthy box is a key people learn to ignore.
+		if len(m.findings()) > 0 {
+			keys = append(keys, [2]string{"g", "go to problem"})
+		}
 		selectable := m.tab == tabProcs || m.tab == tabPorts || m.tab == tabUnits
 		if selectable {
 			keys = append(keys, [2]string{"↑↓", "select"})

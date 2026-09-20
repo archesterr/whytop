@@ -34,6 +34,19 @@ func (m model) procRows() []collect.Proc {
 
 	f := strings.ToLower(strings.TrimSpace(m.filter[tabProcs]))
 	if f != "" {
+		// "state:D" matches the state column exactly rather than as free
+		// text, which is what lets the status line narrow the list to the
+		// processes a finding is actually about — searching for "d" would
+		// match half the command lines on the box.
+		if want, ok := strings.CutPrefix(f, "state:"); ok {
+			out := list[:0]
+			for _, p := range list {
+				if strings.EqualFold(p.State, want) {
+					out = append(out, p)
+				}
+			}
+			return sortProcs(out, m.sortKey, m.sortDir)
+		}
 		out := list[:0]
 		for _, p := range list {
 			hay := strconv.Itoa(int(p.PID)) + " " + strings.ToLower(p.Name+" "+p.User+" "+unitName(p.Unit)+" "+p.Cmdline+" "+p.Container+" "+p.Runtime)
@@ -44,9 +57,12 @@ func (m model) procRows() []collect.Proc {
 		list = out
 	}
 
-	dir := m.sortDir
+	return sortProcs(list, m.sortKey, m.sortDir)
+}
+
+func sortProcs(list []collect.Proc, sortKey string, dir int) []collect.Proc {
 	if dir == 0 {
-		dir = defaultSortDir(m.sortKey)
+		dir = defaultSortDir(sortKey)
 	}
 	less := func(i, j int) bool {
 		a, b := list[i], list[j]
@@ -54,7 +70,7 @@ func (m model) procRows() []collect.Proc {
 		// Text columns compare as text; the rest compare as numbers. Sorting
 		// USER or COMMAND numerically would be meaningless, and sorting MEM
 		// alphabetically would put "9 KiB" above "80 GiB".
-		if sx, sy, isText := sortText(m.sortKey, a, b); isText {
+		if sx, sy, isText := sortText(sortKey, a, b); isText {
 			if sx != sy {
 				if dir < 0 {
 					return sx > sy
@@ -65,7 +81,7 @@ func (m model) procRows() []collect.Proc {
 		}
 
 		var x, y float64
-		switch m.sortKey {
+		switch sortKey {
 		case "mem":
 			x, y = float64(a.RSS), float64(b.RSS)
 		case "read":

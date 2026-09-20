@@ -76,6 +76,8 @@ docker build -t whytop --build-arg VERSION=$(git describe --tags) .
 
 Always visible: CPU, memory, I/O wait, load per core, and PSI pressure — and under them, a one-line verdict in plain words. Not `PSI io 22%`, but `⚠ 3 processes stuck waiting on disk · sda 98% busy · /var almost full (97%)`, or just `✓ Nothing obviously wrong right now`. You shouldn't need to already know that 0.7 load across 4 cores is fine but 20% I/O pressure is an emergency.
 
+**Every finding is a link.** Click one, or press `g` to walk them, and whytop goes to the rows it's about — "3 processes stuck waiting on disk" opens the process list filtered to exactly those three, whether there's one or eight of them. `Esc` clears the filter again. Findings that are averages rather than live counts (I/O wait, PSI) go to the Disks tab instead, since by the time you press `g` nothing may be blocked at that instant.
+
 A red banner surfaces immediately if the kernel OOM-killed a process — no need to go digging through `dmesg`.
 
 The process list hides kernel threads by default (`K` shows them). On an idle 4-core box those are ~90% of every PID on the system and never the thing you're troubleshooting.
@@ -88,7 +90,7 @@ The footer lists only the keys that work on the current screen.
 
 | Where | Keys |
 |---|---|
-| Everywhere | `1`–`5` tabs (also `←` `→`/`Tab`/`h`/`l`), `p` pause |
+| Everywhere | `1`–`5` tabs (also `←` `→`/`Tab`/`h`/`l`), `g` go to the next problem, `p` pause |
 | Processes, Ports, Units | `↑` `↓` select |
 | Processes, Ports | `Enter` open, `/` filter, `Esc` clear filter |
 | Processes | `s` cycle sort, `S` reverse it, `K` show/hide kernel threads |
