@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/archesterr/whytop/internal/collect"
 )
 
 // The top of the screen is the part you read without meaning to: it has to
@@ -44,12 +46,13 @@ func (m model) maxCoreRows() int {
 	if h <= 0 {
 		h = 30
 	}
-	// What is left of half the screen once the panel's fixed rows — three
-	// meters, the identity line, and the frame's own four — have had
-	// theirs. The panel is worth height, but a machine with ninety-six
-	// cores must not push the process list off the bottom of a 24-row SSH
-	// session; the cores that don't fit are counted instead.
-	n := h/2 - 8
+	// What is left of the panel's share of the screen once its fixed rows
+	// — the meters, the rule under the core band, and the frame's own four
+	// — have had theirs. The panel is worth height, and more of it than it
+	// used to take, but a machine with ninety-six cores must not push the
+	// process list off the bottom of a 24-row SSH session; cores that do
+	// not fit are packed tighter, and only then counted as hidden.
+	n := h*55/100 - 10
 	if n > 8 {
 		n = 8
 	}
@@ -63,6 +66,7 @@ func (m model) maxCoreRows() int {
 // whether each carries its own percentage, and which cores land on which row.
 type coreGrid struct {
 	barW   int
+	cell   int // the whole meter's width, bar and label and percentage
 	digits int
 	pct    bool
 	rows   [][]int // core indexes
@@ -74,17 +78,23 @@ type coreGrid struct {
 // become a rule across the screen.
 const (
 	minCoreBar = 4
-	maxCoreBar = 40
+	maxCoreBar = 64
 	corePctW   = 5 // " 100%"
 )
 
 // coreLayout picks the grid for n cores in a band paneW columns wide.
 //
-// It chooses the fewest rows that will hold every core, and then spends all
-// the width that leaves on the bars themselves, rather than packing the
-// cores tightly and leaving the rest of the band empty. That is what makes
-// a four-core box look like four wide meters and a sixty-four-core box look
-// like a grid, from the same code and without a special case for either.
+// Two cores to a row is the shape htop uses and the shape people read the
+// machine in: an eight-core box is four rows of two, not one long line of
+// eight. It is also what gives the panel its height — a band one row tall
+// is a status line, and the top of the screen is where the machine is
+// supposed to be legible from across a desk.
+//
+// More cores per row only when the rows would otherwise run past what the
+// terminal can spare, and the bar itself is capped: past about forty
+// columns a bar stops reading as a measurement and becomes a rule — and the
+// percentage then sits at the cell's right edge rather than trailing the bar,
+// so the numbers line up in columns down the band.
 func (m model) coreLayout(paneW int) coreGrid {
 	n := len(m.snap.CPU.PerCore)
 	if n == 0 || paneW < 10 {
@@ -103,17 +113,23 @@ func (m model) coreLayout(paneW int) coreGrid {
 		}
 		fixed := digits + 2 + pctW // "12" + "▕▏" + the percentage
 		minCell := fixed + minCoreBar
-		for rows := 1; rows <= maxRows; rows++ {
-			perRow := (n + rows - 1) / rows
-			if (paneW+1)/(minCell+1) < perRow {
+		widest := (paneW + 1) / (minCell + 1) // most cores a row can hold at all
+		if widest < 1 {
+			return coreGrid{}, false
+		}
+		for perRow := coreCols; perRow <= widest; perRow++ {
+			if perRow > n {
+				perRow = n
+			}
+			if (n+perRow-1)/perRow > maxRows {
 				continue
 			}
-			barW := (paneW+1)/perRow - 1 - fixed
+			cell := (paneW+1)/perRow - 1
+			barW := cell - fixed
 			if barW > maxCoreBar {
 				barW = maxCoreBar
 			}
-			g := coreGrid{barW: barW, digits: digits, pct: pct}
-			return m.fillRows(g, perRow, n, maxRows), true
+			return m.fillRows(coreGrid{barW: barW, cell: cell, digits: digits, pct: pct}, perRow, n, maxRows), true
 		}
 		return coreGrid{}, false
 	}
@@ -132,12 +148,19 @@ func (m model) coreLayout(paneW int) coreGrid {
 	if perRow < 1 {
 		perRow = 1
 	}
-	barW := (paneW+1)/perRow - 1 - digits - 2
-	return m.fillRows(coreGrid{barW: barW, digits: digits}, perRow, n, maxRows)
+	cell := (paneW+1)/perRow - 1
+	return m.fillRows(coreGrid{barW: cell - digits - 2, cell: cell, digits: digits}, perRow, n, maxRows)
 }
+
+// coreCols is how many cores a row holds when there is room for the choice:
+// htop's two.
+const coreCols = 2
 
 // cellW is the width of one core's meter as laid out.
 func (g coreGrid) cellW() int {
+	if g.cell > 0 {
+		return g.cell
+	}
 	w := g.digits + 2 + g.barW
 	if g.pct {
 		w += corePctW
@@ -202,8 +225,26 @@ func headerCols(inner int) []int {
 	for i := range out {
 		out[i] = each
 	}
-	out[n-1] = inner - (each+colSepW)*(n-1)
+	// The meters column carries bars as well as words, so with three
+	// columns it takes a share from the other two. Splitting equally is
+	// what left every meter's breakdown ending in an ellipsis while the
+	// facts beside it sat in half-empty columns.
+	if n == 3 {
+		out[0] = each + meterColBonus
+		out[1] = each - meterColBonus/2
+	}
+	out[n-1] = inner - sum(out[:n-1]) - colSepW*(n-1)
 	return out
+}
+
+const meterColBonus = 8
+
+func sum(ns []int) int {
+	t := 0
+	for _, n := range ns {
+		t += n
+	}
+	return t
 }
 
 // headerBody renders the panel's interior, already divided and padded to the
@@ -211,12 +252,29 @@ func headerCols(inner int) []int {
 // they cannot disagree about how tall the panel is — and a panel that draws
 // a different number of rows than it claims sends every click to the wrong
 // row.
-func (m model) headerBody(inner int) []string {
+// headerLine is one interior row of the panel. A rule is a row like any
+// other so that the height the panel claims and the height it draws come
+// from the same list — the arithmetic that keeps every click on the right
+// row does not get a second code path to drift out of step with.
+type headerLine struct {
+	text string
+	rule bool
+}
+
+func (m model) headerBody(inner int) []headerLine {
 	if m.snap == nil || inner < 4 {
 		return nil
 	}
 	widths := headerCols(inner)
-	out := m.coreLines(inner)
+	var out []headerLine
+	for _, l := range m.coreLines(inner) {
+		out = append(out, headerLine{text: l})
+	}
+	// The band of cores and the columns below it are two different things
+	// being measured, so a rule goes between them rather than a blank row.
+	if len(out) > 0 {
+		out = append(out, headerLine{rule: true})
+	}
 
 	var groups [][]string
 	switch len(widths) {
@@ -244,25 +302,31 @@ func (m model) headerBody(inner int) []string {
 			}
 			cells = append(cells, pad(truncateANSI(line, widths[gi]), widths[gi], false))
 		}
-		out = append(out, strings.Join(cells, sep))
+		out = append(out, headerLine{text: strings.Join(cells, sep)})
 	}
-	// With fewer than three columns the identity of the machine — uptime,
-	// distribution, kernel — is one line across the full width instead of a
-	// column of its own. It is the least volatile thing on the panel, so it
-	// is the thing that can afford to be read rather than scanned.
+	// Without a column of its own, the identity of the machine — uptime,
+	// distribution, kernel — folds onto one line instead of taking four. It
+	// is the least volatile thing on the panel, so it is what can afford to
+	// be crowded.
 	if len(widths) < 3 {
-		out = append(out, m.identRow(inner))
+		out = append(out, headerLine{text: m.identRow(inner)})
 	}
 	// On a terminal too short to hold both, the panel gives way rather than
 	// the list: a process list squeezed to nothing is a monitor that has
-	// stopped monitoring. Rows go from the bottom, which is where the least
-	// urgent of them are.
+	// stopped monitoring. Rows go from the bottom, where the least urgent
+	// of them are — and never leave a rule as the last row.
 	if cap := m.headerBodyCap(); len(out) > cap {
 		out = out[:max0(cap)]
+		for len(out) > 0 && out[len(out)-1].rule {
+			out = out[:len(out)-1]
+		}
 	}
 	return out
 }
 
+// headerBodyCap is how many interior rows the panel may draw and still
+// leave the list three rows, its two borders, the footer, and the terminal's
+// reserved last row.
 // headerBodyCap is how many interior rows the panel may draw and still
 // leave the list three rows, its two borders, the footer, and the terminal's
 // reserved last row.
@@ -316,13 +380,18 @@ func (m model) renderHeaderPanel(w int) string {
 
 	lines := []string{boxTop(w, title, right)}
 	body := m.headerBody(inner)
+	at := ruleJunctions(headerCols(inner))
 	for _, l := range body {
-		lines = append(lines, boxLine(w, l))
+		if l.rule {
+			lines = append(lines, boxRuleAt(w, at...))
+			continue
+		}
+		lines = append(lines, boxLine(w, l.text))
 	}
 	// The rule closes every column at once, with a junction wherever a
 	// divider meets it — the detail that makes a split panel look built
 	// rather than merely overlaid.
-	if at := ruleJunctions(headerCols(inner)); len(at) > 0 && len(body) > 0 {
+	if len(at) > 0 && len(body) > 0 {
 		lines = append(lines, boxRuleAt(w, at...))
 	} else {
 		lines = append(lines, boxRule(w))
@@ -358,14 +427,49 @@ func (m model) meterLines(w int) []string {
 	// percentages line up. Three meters whose bars are three different
 	// lengths is three measurements you have to read one at a time, which
 	// is the opposite of what a meter is for.
+	fsLabel, fsSub, fsPct, fsOK := m.fullestFS()
+	// The bar width is set by the three fixed-format breakdowns, not by the
+	// filesystem's — a mount path is arbitrary length, and letting it into
+	// this measurement means one long path on one machine shrinks every
+	// bar on the panel. The path is truncated instead.
 	barW := meterBarW(w, cpuSub, memSub, swapSub)
-	return []string{
+	out := []string{
 		meter(w, barW, "CPU", f1(s.CPU.Busy)+"%", lvl(s.CPU.Busy, 70, 90), stAccent, s.CPU.Busy/100, cpuSub),
 		meter(w, barW, "MEM", f1(s.Mem.UsedPct)+"%", lvl(s.Mem.UsedPct, 80, 92),
 			lipgloss.NewStyle().Foreground(colMem), s.Mem.UsedPct/100, memSub),
 		meter(w, barW, "SWP", f1(swapPct)+"%", swapStyle,
 			lipgloss.NewStyle().Foreground(colLoad), swapPct/100, swapSub),
 	}
+	// A full disk takes a machine down as surely as a full memory, and it
+	// is the one of the two nothing else on this screen would have told
+	// you about. The fullest mount is the one worth the row.
+	if fsOK {
+		out = append(out, meter(w, barW, fsLabel, f1(fsPct)+"%", lvl(fsPct, 80, 92),
+			lipgloss.NewStyle().Foreground(colIO), fsPct/100, fsSub))
+	}
+	return out
+}
+
+// fullestFS is the mount closest to full, which is the only one that can
+// matter in a single line. A stale mount (a dead NFS server) reports
+// nothing believable, so it is left out rather than shown as 0%.
+func (m model) fullestFS() (label, sub string, pct float64, ok bool) {
+	var worst *collect.FS
+	for i := range m.snap.FS {
+		f := &m.snap.FS[i]
+		if f.Stale || f.Total == 0 {
+			continue
+		}
+		if worst == nil || f.UsedPct > worst.UsedPct {
+			worst = f
+		}
+	}
+	if worst == nil {
+		return "", "", 0, false
+	}
+	label = "DISK"
+	sub = fmt.Sprintf("%s  %s free", shortMount(worst.Mount), bytesFmt(float64(worst.Free)))
+	return label, sub, worst.UsedPct, true
 }
 
 // meterBarW is the bar width the meters share: what is left once the widest
@@ -400,7 +504,7 @@ func meterBarW(w int, subs ...string) int {
 const minMeterBar = 8
 
 const (
-	meterLabelW = 4
+	meterLabelW = 5
 	meterValW   = 6
 )
 
@@ -480,7 +584,25 @@ func (m model) loadLines(w int) []string {
 	if s.PSI.Available {
 		io += "   " + lvl(s.PSI.IOSome, 10, 30).Render(f1(s.PSI.IOSome)) + stMuted.Render(" psi io")
 	}
-	add("Disk", io)
+	add("I/O", io)
+
+	// Aggregate throughput, loopback excluded: traffic a process sends to
+	// itself is not traffic the machine is carrying, and counting it makes
+	// a busy local database look like a saturated uplink.
+	var rx, tx float64
+	nics := 0
+	for _, n := range s.NICs {
+		if n.Name == "lo" {
+			continue
+		}
+		rx += n.RxBps
+		tx += n.TxBps
+		nics++
+	}
+	if nics > 0 {
+		add("Net", stNet.Render("↓ "+rateFmt(rx))+stMuted.Render("   ")+
+			stNet.Render("↑ "+rateFmt(tx)))
+	}
 	return out
 }
 
@@ -492,7 +614,8 @@ func (m model) identLines(w int) []string {
 	add := func(label, value string) {
 		out = append(out, withPad(stLabel.Render(label), factLabelW)+truncateANSI(value, max0(w-factLabelW)))
 	}
-	add("Uptime", stPlain.Render(dur(s.Uptime))+stMuted.Render("  ·  "+strconv.Itoa(s.CPU.Cores)+" cores"))
+	add("Uptime", stPlain.Render(dur(s.Uptime)))
+	add("Cores", stPlain.Render(strconv.Itoa(s.CPU.Cores)))
 	add("OS", stPlain.Render(safeText(s.OS)))
 	add("Kernel", stMuted.Render(safeText(s.Kernel)))
 	// Without root, per-process I/O for other users' processes reads as
@@ -520,6 +643,20 @@ func (m model) identRow(w int) string {
 		parts = append(parts, stWarn.Render("limited — sudo for full I/O"))
 	}
 	return truncateANSI(strings.Join(parts, stFaint.Render("  ·  ")), w)
+}
+
+// shortMount names a mount by its last component. A container host's mounts
+// run to sixty characters of path that differ only at the end, which is the
+// end worth showing.
+func shortMount(mount string) string {
+	m := safeText(mount)
+	if len(m) <= 16 {
+		return m
+	}
+	if i := strings.LastIndex(m, "/"); i > 0 {
+		return "…" + m[i:]
+	}
+	return truncate(m, 16)
 }
 
 // coreLines lays the per-core meters out in a grid. A 12-core box averaging
@@ -566,13 +703,22 @@ func (m model) coreLines(w int) []string {
 			if n > 0 {
 				b.WriteString(" ")
 			}
-			b.WriteString(stFaint.Render(lpadPlain(strconv.Itoa(i), g.digits)))
-			b.WriteString(stBox2.Render("▕"))
-			b.WriteString(gauge(v/100, g.barW, fill))
-			b.WriteString(stBox2.Render("▏"))
+			// The bar is capped, but the meter is not: the percentage sits
+			// at the cell's right edge, so on a wide terminal the numbers
+			// line up in columns down the band instead of trailing each
+			// bar at a different offset. It is what htop's core meters do,
+			// and the reason a wide band reads as a grid rather than as a
+			// row of bars with an empty half beside it.
+			meter := stFaint.Render(lpadPlain(strconv.Itoa(i), g.digits)) +
+				stBox2.Render("▕") + gauge(v/100, g.barW, fill) + stBox2.Render("▏")
 			if g.pct {
-				b.WriteString(lpad(fill.Render(strconv.Itoa(int(v+0.5))+"%"), corePctW))
+				room := max0(g.cellW() - visLen(meter))
+				if room < corePctW {
+					room = corePctW
+				}
+				meter += lpad(fill.Render(strconv.Itoa(int(v+0.5))+"%"), room)
 			}
+			b.WriteString(meter)
 		}
 		if notice != "" {
 			b.WriteString(stFaint.Render(notice))
