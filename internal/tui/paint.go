@@ -20,10 +20,24 @@ import (
 // It builds the styled string itself rather than going through cell(),
 // because cell() paints one style over the whole value.
 func cmdCell(s string, w int, sel bool) string {
+	return cmdCellAt(s, 0, w, sel)
+}
+
+// cmdCellAt indents a row by its depth in the tree, with the guide that
+// makes a forest readable as one. The indent is part of the cell rather
+// than a separate column so it is cut with the text when the terminal is
+// narrow, instead of pushing the command out of sight.
+func cmdCellAt(s string, depth, w int, sel bool) string {
 	if w <= 0 {
 		return ""
 	}
 	s = safeText(s)
+	if depth > 0 {
+		indent := strings.Repeat("  ", min(depth, 12)) + "└ "
+		out := withBG(stFaint, sel).Render(indent)
+		rest := cmdCellAt(s, 0, max0(w-visLen(indent)), sel)
+		return pad(out+rest, w, sel)
+	}
 	if len([]rune(s)) > w {
 		s = truncate(s, w)
 	}

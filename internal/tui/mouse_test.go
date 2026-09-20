@@ -25,7 +25,7 @@ func TestClickAboveTheListDoesNothing(t *testing.T) {
 func TestClickRowSelectsAndOpensProcess(t *testing.T) {
 	m := model{snap: testSnap(), sortKey: "pid", width: 100, height: 30}
 	// rows are sorted by pid ascending: 1 (init), 42 (nginx), 43 (worker)
-	got, cmd := m.handleClick(0, listFirstRow+1) // second row -> PID 42
+	got, cmd := m.handleClick(0, m.listFirstRow()+1) // second row -> PID 42
 	gm := got.(model)
 	if gm.sel != "42" {
 		t.Errorf("clicking row 1 selected %q, want \"42\"", gm.sel)
@@ -40,7 +40,7 @@ func TestClickRowSelectsAndOpensProcess(t *testing.T) {
 
 func TestClickRowOutOfRangeIsIgnored(t *testing.T) {
 	m := model{snap: testSnap(), sortKey: "pid", width: 100}
-	got, _ := m.handleClick(0, listFirstRow+50) // way past the 3 rows we have
+	got, _ := m.handleClick(0, m.listFirstRow()+50) // way past the 3 rows we have
 	if got.(model).detail != nil {
 		t.Error("clicking past the last row should not open anything")
 	}
@@ -72,7 +72,7 @@ func TestWheelScrollMovesSelection(t *testing.T) {
 
 func TestMouseClickDuringConfirmIsIgnored(t *testing.T) {
 	m := model{snap: testSnap(), confirm: &confirmState{prompt: "Force kill?"}}
-	msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: listFirstRow}
+	msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: m.listFirstRow()}
 	got, cmd := m.handleMouse(msg)
 	gm := got.(model)
 	if gm.confirm == nil {

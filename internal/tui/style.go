@@ -41,6 +41,7 @@ var (
 	colNet      = lipgloss.Color("#7fd6a8") // traffic moving
 	colPort     = lipgloss.Color("#f0c674") // a port someone can connect to
 	colCore     = lipgloss.Color("#6f9be0") // a core doing ordinary work
+	colLine2    = lipgloss.Color("#46516a") // the frame: visible, never loud
 )
 
 var (
@@ -88,6 +89,13 @@ var (
 	stFilterChip = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colPort)
 	stFilterOn   = lipgloss.NewStyle().Foreground(colPort)
 	stRemote     = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colIO)
+	// The frame is deliberately dim. Borders are there to group things, and
+	// a border bright enough to compete with the data it contains has
+	// stopped doing its job.
+	stBox2     = lipgloss.NewStyle().Foreground(colLine2)
+	stBoxTitle = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
+	stLabel    = lipgloss.NewStyle().Bold(true).Foreground(colMuted)
+	stBig      = lipgloss.NewStyle().Bold(true).Foreground(colText)
 )
 
 // colSep visibly separates table columns — a first-time user shouldn't have

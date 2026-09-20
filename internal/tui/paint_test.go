@@ -86,9 +86,10 @@ func TestGaugeShowsSomethingForASmallValue(t *testing.T) {
 	}
 }
 
-// The vitals row is two physical lines with a fixed budget; the gauges are
-// drawn inside that budget, not on top of it.
-func TestVitalsRowNeverOverflows(t *testing.T) {
+// The header panel is a fixed number of rows with a fixed width; the
+// gauges, the fields and the core grid are all drawn inside that budget,
+// not on top of it. A single overflowing line breaks the frame.
+func TestHeaderPanelNeverOverflows(t *testing.T) {
 	withColor(t)
 	snap := &collect.Snapshot{
 		CPU:   collect.CPU{Cores: 12, Busy: 99.9, User: 80, System: 19.9, Iowait: 44},
@@ -96,12 +97,25 @@ func TestVitalsRowNeverOverflows(t *testing.T) {
 		PSI:   collect.PSI{Available: true, CPUSome: 88.8, MemSome: 12, IOSome: 99.9},
 		Load1: 87.65,
 	}
-	m := model{snap: snap}
+	snap.CPU.PerCore = make([]float64, 96) // a big box, to exercise the grid
+	for i := range snap.CPU.PerCore {
+		snap.CPU.PerCore[i] = float64(i)
+	}
 	for _, w := range []int{80, 100, 132, 190, 400} {
-		for _, line := range strings.Split(m.renderVitals(w), "\n") {
-			if got := visLen(line); got > w {
-				t.Errorf("vitals at w=%d: line is %d columns: %q", w, got, stripANSI(line))
+		m := model{snap: snap, width: w, height: 50}
+		lines := strings.Split(m.renderHeaderPanel(w), "\n")
+		for _, line := range lines {
+			if got := visLen(line); got != w {
+				t.Errorf("header at w=%d: line is %d columns, want exactly %d: %q",
+					w, got, w, stripANSI(line))
 			}
+		}
+		// The declared height has to match what is drawn, or every row
+		// below it — including where clicks land — is off by the
+		// difference.
+		if len(lines) != m.headerHeight() {
+			t.Errorf("header at w=%d drew %d rows but headerHeight says %d",
+				w, len(lines), m.headerHeight())
 		}
 	}
 }

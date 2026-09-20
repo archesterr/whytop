@@ -22,6 +22,16 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	}
+	if m.help {
+		switch msg.String() {
+		case "q":
+			m.quitting = true
+			return m, tea.Quit
+		default:
+			m.help = false
+		}
+		return m, nil
+	}
 	if m.hosts != nil {
 		return m.handleHostKey(msg)
 	}
@@ -76,34 +86,107 @@ func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// The key map follows htop and top wherever they have a name for something,
+// because the people who will use this already have those keys in their
+// fingers: k kills, K hides kernel threads, P/M/T sort by CPU/memory/time,
+// < and > move the sort column, u filters by user, t is the tree, p toggles
+// the full program path, h is help. Being nearly-but-not-quite htop is worse
+// than being nothing like it — a key that does something *else* is how you
+// kill the wrong process.
+//
+// Only what htop and top have no equivalent for gets a key of whytop's own,
+// and those are deliberately keys neither tool binds: @ for hosts, g to jump
+// to the problem, L to lock the row order, space to pause.
 func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyF1:
+		m.help = !m.help
+		return m, nil
+	case tea.KeyF3:
+		m.editing = true
+		return m, nil
+	case tea.KeyF5:
+		return m.toggleTree()
+	case tea.KeyF6:
+		return m.cycleSort(1)
+	case tea.KeyF9:
+		return m.killSelected()
+	case tea.KeyF10:
+		m.quitting = true
+		return m, tea.Quit
+	case tea.KeyPgUp:
+		m.moveSel(-m.listRowsBudget())
+		return m, nil
+	case tea.KeyPgDown:
+		m.moveSel(m.listRowsBudget())
+		return m, nil
+	case tea.KeyHome:
+		m.moveSel(-1 << 30)
+		return m, nil
+	case tea.KeyEnd:
+		m.moveSel(1 << 30)
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "q":
 		m.quitting = true
 		return m, tea.Quit
-	case "p":
-		m.paused = !m.paused
-		if !m.paused {
-			return m, m.collectCmd(0)
+	case "h", "?":
+		m.help = !m.help
+
+	// --- htop / top ---
+	case "k":
+		return m.killSelected()
+	case "K":
+		m.showKernel = !m.showKernel
+		if m.showKernel {
+			return m.showToast("Showing kernel threads ([kworker/…] and friends). K hides them again.", true)
 		}
-	case "/":
-		m.editing = true
-	case "s":
-		i := 0
-		for idx, k := range procSortCycle {
-			if k == m.sortKey {
-				i = idx
-			}
-		}
-		m.sortKey = procSortCycle[(i+1)%len(procSortCycle)]
-		m.sortDir = defaultSortDir(m.sortKey)
-		m.relock()
-	case "S":
+		return m.showToast("Kernel threads hidden. K shows them again.", true)
+	case "P":
+		return m.sortBy("cpu")
+	case "M":
+		return m.sortBy("mem")
+	case "T":
+		return m.sortBy("time")
+	case ">":
+		return m.cycleSort(1)
+	case "<":
+		return m.cycleSort(-1)
+	case "I", "R":
 		m.sortDir = -m.sortDir
 		if m.sortDir == 0 {
 			m.sortDir = -defaultSortDir(m.sortKey)
 		}
 		m.relock()
+	case "t":
+		return m.toggleTree()
+	case "p":
+		m.fullPath = !m.fullPath
+		if m.fullPath {
+			return m.showToast("Showing the full program path. p shows just the program again.", true)
+		}
+		return m.showToast("Showing the program name without its path. p shows the full path.", true)
+	case "u":
+		// htop and top both open a filter on the owner here.
+		m.editing, m.filterScope, m.filter = true, scopeUser, ""
+	case "/":
+		m.editing = true
+	case "l":
+		// htop runs lsof on the selected process; whytop already shows a
+		// process's open files, so l opens that panel on them directly.
+		mm, cmd := m.openSelected()
+		if d := mm.(model).detail; d != nil {
+			d.focus = focusFiles
+		}
+		return mm, cmd
+
+	// --- whytop's own, on keys htop and top leave free ---
+	case "@":
+		return m.openHosts()
+	case "g":
+		return m.jumpToFinding()
 	case "L":
 		m.lockOrder = !m.lockOrder
 		m.relock()
@@ -111,20 +194,17 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.showToast("Order locked: rows stay put while their numbers change. L unlocks.", true)
 		}
 		return m.showToast("Order live again: rows re-sort as usage changes.", true)
-	case "H":
-		return m.openHosts()
-	case "K":
-		m.showKernel = !m.showKernel
-		if m.showKernel {
-			return m.showToast("Showing kernel threads ([kworker/…] and friends). K hides them again.", true)
+	case " ":
+		m.paused = !m.paused
+		if !m.paused {
+			return m, m.collectCmd(0)
 		}
-		return m.showToast("Kernel threads hidden. K shows them again.", true)
-	case "up", "k":
+
+	// --- navigation ---
+	case "up":
 		m.moveSel(-1)
-	case "down", "j":
+	case "down":
 		m.moveSel(1)
-	case "g":
-		return m.jumpToFinding()
 	case "esc":
 		// A jump leaves a filter behind on purpose, so esc has to be able to
 		// take it off again without opening the filter editor first.
@@ -136,6 +216,62 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openSelected()
 	}
 	return m, nil
+}
+
+// sortBy is what P, M and T do in htop and top: jump straight to a column,
+// in the direction that column is worth reading.
+func (m *model) sortBy(key string) (tea.Model, tea.Cmd) {
+	m.sortKey, m.sortDir = key, defaultSortDir(key)
+	m.relock()
+	return *m, nil
+}
+
+// cycleSort steps the sort column, which is what < and > do in both tools.
+func (m *model) cycleSort(delta int) (tea.Model, tea.Cmd) {
+	i := 0
+	for idx, k := range procSortCycle {
+		if k == m.sortKey {
+			i = idx
+		}
+	}
+	i = (i + delta + len(procSortCycle)) % len(procSortCycle)
+	return m.sortBy(procSortCycle[i])
+}
+
+func (m *model) toggleTree() (tea.Model, tea.Cmd) {
+	m.tree = !m.tree
+	m.relock()
+	if m.tree {
+		return m.showToast("Tree view: processes under the ones that started them. t goes back to a flat list.", true)
+	}
+	return m.showToast("Flat list. t shows the process tree.", true)
+}
+
+// killSelected is htop's k and top's k: signal the process under the cursor.
+// It confirms first, and it carries the start time the row was drawn from so
+// the signal lands on that process or on nothing — see actions.Signal.
+func (m *model) killSelected() (tea.Model, tea.Cmd) {
+	if mm, cmd, blocked := m.localOnly("Killing a process"); blocked {
+		return mm, cmd
+	}
+	rows := m.procRows()
+	var p collect.Proc
+	found := false
+	for _, r := range rows {
+		if strconv.Itoa(int(r.PID)) == m.sel {
+			p, found = r, true
+			break
+		}
+	}
+	if !found {
+		return m.showToast("No process selected — use ↑↓ first.", false)
+	}
+	pid, name, started := p.PID, p.Name, p.Started
+	m.confirm = &confirmState{
+		prompt: fmt.Sprintf("Send SIGTERM to %s (PID %d)? Shift-K force-kills instead. [y/N]", safeText(name), pid),
+		run:    func() tea.Cmd { return doSignal(pid, "TERM", started) },
+	}
+	return *m, nil
 }
 
 // rowKeys returns the ordered (key, pid) pairs for the list, built fresh

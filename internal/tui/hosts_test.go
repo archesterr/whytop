@@ -108,10 +108,10 @@ func TestOpensOnLocalhost(t *testing.T) {
 // H opens the panel, and the panel always offers localhost to come back to.
 func TestHostPanelAlwaysOffersLocalhost(t *testing.T) {
 	m := model{snap: portSnap(), width: 100, height: 30}
-	got, _ := m.handleListKey(keyRunes("H"))
+	got, _ := m.handleListKey(keyRunes("@"))
 	gm := got.(model)
 	if gm.hosts == nil {
-		t.Fatal("H did not open the host panel")
+		t.Fatal("@ did not open the host panel")
 	}
 	if len(gm.hosts.hosts) == 0 || gm.hosts.hosts[0].Name != "localhost" {
 		t.Fatalf("localhost should be first in the list, got %+v", gm.hosts.hosts)

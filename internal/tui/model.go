@@ -115,6 +115,13 @@ type model struct {
 	sel        string // selected row key
 	findingSel int    // which status-line finding g jumps to next
 
+	// help shows the key map. tree orders the list as a forest, the way
+	// htop's t does. fullPath is htop's p: the whole path, or just the
+	// program that is running.
+	help     bool
+	tree     bool
+	fullPath bool
+
 	// lockOrder freezes the process list's row order. See lockRank.
 	lockOrder bool
 	// lockRank is the position every PID held when the order was locked, so
@@ -154,13 +161,16 @@ type rowRef struct {
 
 // procSortCycle is what the s key steps through — the same columns the
 // header exposes to a click, in the order you'd reach for them.
-var procSortCycle = []string{"cpu", "mem", "read", "write", "pid", "user", "state", "command"}
+var procSortCycle = []string{"cpu", "mem", "read", "write", "net", "port", "time", "pid", "user", "state", "command"}
 
 func initialModel(opt Options) model {
 	return model{
 		col: collect.New(), opt: opt,
 		sortKey: "cpu", sortDir: -1,
-		deepPID: opt.PID, deepPort: opt.Port,
+		// htop shows the whole command line by default and p strips the
+		// path; whytop matches that rather than inventing its own default.
+		fullPath: true,
+		deepPID:  opt.PID, deepPort: opt.Port,
 		lastOOMCheck: time.Now(),
 	}
 }

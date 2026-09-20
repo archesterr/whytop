@@ -134,12 +134,40 @@ Opening a process shows its state, parent, CPU/memory/disk with children, its op
 
 The footer lists only the keys that do something on the current screen.
 
-| Where | Keys |
+**The keys are htop's and top's wherever they have a name for something.** Being nearly-but-not-quite htop is worse than being nothing like it — a key that does something *else* is how the wrong process gets killed. `h` (or `F1`) shows the whole map in the tool.
+
+| Key | Does | Same as |
+|---|---|---|
+| `↑` `↓` `PgUp` `PgDn` `Home` `End` | move the cursor | htop, top |
+| `k` `F9` | kill — SIGTERM, confirmed | htop, top |
+| `K` | show / hide kernel threads | htop |
+| `P` `M` `T` | sort by CPU, memory, time | htop, top |
+| `<` `>` `F6` | previous / next sort column | htop, top |
+| `I` `R` | invert the sort order | htop, top |
+| `t` `F5` | tree view | htop |
+| `p` | full program path on / off | htop |
+| `u` | filter by user | htop, top |
+| `/` `F3` | search | htop |
+| `l` | open files of this process | htop (`lsof`) |
+| `h` `?` `F1` | help | htop, top |
+| `q` `F10` | quit | htop, top |
+
+Whytop has a few things those tools don't, and they sit on keys neither of them binds:
+
+| Key | Does |
 |---|---|
-| List | `↑` `↓` select, `Enter` open, `/` filter, `Esc` clear filter, `g` go to the next problem, `p` pause |
-| List | `s` cycle sort, `S` reverse it, `L` lock/unlock the row order, `K` show/hide kernel threads, `H` hosts |
-| Filter | `Tab` cycle the scope, `Enter` apply, `Esc` clear |
-| Hosts | `↑` `↓` select, `Enter` connect, `a` add a host, `c` change ssh config, `r` reload, `Esc` close |
+| `Enter` | open the process panel |
+| `g` | go to the next problem |
+| `@` | hosts — watch another box over SSH |
+| `L` | lock the row order |
+| `Space` | pause / resume sampling |
+| `Tab` | in the filter: change what it searches |
+| `Esc` | clear the filter, or close a panel |
+
+| In the process panel | Keys |
+|---|---|
+| | `Tab` switch between the tree and open files, `x` stop, `X` force kill, `r` restart unit, `e` edit its unit file, `j` reload journal, `f` pause/resume the live journal, `t` empty a file, `c` close a descriptor, `Esc` close |
+| In the hosts panel | `↑` `↓` select, `Enter` connect, `a` add a host, `c` change ssh config, `r` reload, `Esc` close |
 | Process panel | `Tab` switch between the process tree and open files, `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `e` edit its unit file (asks to `daemon-reload` after), `j` reload journal, `f` pause/resume the live journal, `Esc` close |
 | Open files | `t` empty the file (reclaims its space, process keeps running), `c` close the descriptor |
 

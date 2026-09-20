@@ -89,7 +89,7 @@ func TestChangingSortWhileLockedRefreezesTheNewOrder(t *testing.T) {
 	m := model{snap: lockSnap(90, 50, 10), sortKey: "cpu", sortDir: -1, lockOrder: true}
 	m.relock()
 
-	flipped, _ := m.handleListKey(keyRunes("S")) // reverse the direction
+	flipped, _ := m.handleListKey(keyRunes("I")) // htop's invert-sort
 	fm := flipped.(model)
 	if got := pids(fm.procRows()); !sameOrder(got, []int32{102, 101, 100}) {
 		t.Errorf("reversing the sort under the lock should re-order once, got %v", got)

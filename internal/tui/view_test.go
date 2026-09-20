@@ -52,7 +52,7 @@ func TestRenderVitalsFits80Columns(t *testing.T) {
 		CPU: collect.CPU{Cores: 4, Busy: 12.3, User: 8, System: 4},
 		Mem: collect.Mem{Total: 16 << 30, Used: 4 << 30, UsedPct: 25},
 	}}
-	for _, line := range strings.Split(m.renderVitals(80), "\n") {
+	for _, line := range strings.Split(m.renderHeaderPanel(80), "\n") {
 		if got := visLen(line); got > 80 {
 			t.Errorf("vitals line overflows 80-col terminal: width=%d line=%q", got, line)
 		}
@@ -66,9 +66,12 @@ func TestRenderHeaderFitsNarrowTerminalWithLongHostname(t *testing.T) {
 		Root: true,
 	}}
 	for _, w := range []int{40, 80, 120} {
-		got := visLen(m.renderHeader(w))
-		if got > w {
-			t.Errorf("header at width %d overflowed to %d visible columns", w, got)
+		m.width = w
+		for i, line := range strings.Split(m.renderHeaderPanel(w), "\n") {
+			if got := visLen(line); got > w {
+				t.Errorf("header at width %d: line %d is %d columns: %q",
+					w, i, got, stripANSI(line))
+			}
 		}
 	}
 }
@@ -84,7 +87,7 @@ func TestRenderHeaderExtremeWidthsDontPanic(t *testing.T) {
 					t.Errorf("renderHeader(%d) panicked: %v", w, r)
 				}
 			}()
-			m.renderHeader(w)
+			m.renderHeaderPanel(w)
 		}()
 	}
 }
@@ -122,7 +125,7 @@ func TestRenderVitalsNoWrapWithBlockedProcesses(t *testing.T) {
 		CPU:   collect.CPU{Cores: 2, Iowait: 5},
 		Procs: []collect.Proc{{PID: 1, State: "D"}, {PID: 2, State: "D"}},
 	}}
-	for _, line := range strings.Split(m.renderVitals(80), "\n") {
+	for _, line := range strings.Split(m.renderHeaderPanel(80), "\n") {
 		if got := visLen(line); got > 80 {
 			t.Errorf("vitals line with D-state processes overflows: width=%d", got)
 		}
