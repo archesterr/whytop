@@ -52,7 +52,9 @@ func (m model) View() string {
 	b.WriteString(m.renderStatus(w))
 	b.WriteString("\n")
 
-	if m.detail != nil {
+	if m.hosts != nil {
+		b.WriteString(m.renderHosts(w, h))
+	} else if m.detail != nil {
 		b.WriteString(m.renderDetail(w, h))
 	} else {
 		b.WriteString(hrule(w))
@@ -139,7 +141,7 @@ func (m model) renderHeader(w int) string {
 	}
 	meta := truncate(fmt.Sprintf("up %s · %d cores · %d processes%s", dur(s.Uptime), s.CPU.Cores, len(s.Procs), safeText(osBit)), metaBudget)
 
-	left := stLogo.Render(logo) + "  " + stHost.Render(host) + "  " + stMuted.Render(meta)
+	left := stLogo.Render(logo) + "  " + m.hostBadge() + stHost.Render(host) + "  " + stMuted.Render(meta)
 	if warnNote != "" {
 		left += stWarn.Render(warnNote)
 	}
@@ -148,6 +150,18 @@ func (m model) renderHeader(w int) string {
 		gap = 1
 	}
 	return left + strings.Repeat(" ", gap) + status
+}
+
+// hostBadge marks a remote host, and marks nothing at all on the local one.
+// Forgetting which machine you are looking at is how the wrong process gets
+// killed, so the distinction is a coloured chip rather than a word in a
+// sentence — but localhost is the overwhelmingly common case and does not
+// need decorating.
+func (m model) hostBadge() string {
+	if m.remote == nil {
+		return ""
+	}
+	return stRemote.Render(" ssh ") + " "
 }
 
 func (m model) renderVitals(w int) string {
@@ -376,20 +390,37 @@ func (m model) renderFooter(w int) string {
 	case m.toast != "":
 		return m.toastStyle(m.toast)
 	case m.editing:
-		keys = [][2]string{{"enter", "apply"}, {"esc", "clear"}}
+		// The hint names what the current scope searches, because "port"
+		// and "command" narrow in very different ways and the difference is
+		// only obvious once it has already surprised you.
+		scope, _ := m.filterQuery()
+		keys = [][2]string{{"tab", "scope: " + scope.hint()}, {"enter", "apply"}, {"esc", "clear"}}
+	case m.hosts != nil:
+		if m.hosts.adding {
+			keys = [][2]string{{"enter", "connect"}, {"esc", "cancel"}}
+			break
+		}
+		keys = [][2]string{{"↑↓", "select"}, {"enter", "connect"}, {"a", "add host"},
+			{"c", "ssh config"}, {"r", "reload"}, {"esc", "close"}}
+
 	case m.detail != nil:
 		// The panel has two lists; the hints name whichever one has the
 		// cursor, so the keys on offer are the ones that will actually fire.
-		if m.detail.focus == focusFiles {
+		if m.detail.focus == focusFiles && m.remote == nil {
 			keys = [][2]string{{"↑↓", "files"}, {"tab", "tree"}, {"t", "empty file"}, {"c", "close fd"}}
 		} else {
 			keys = [][2]string{{"↑↓", "tree"}, {"tab", "files"}, {"enter", "open"}}
 		}
-		keys = append(keys, [2]string{"x", "stop"}, [2]string{"X", "kill"})
-		if p, ok := m.procByPID(m.detail.pid); ok && p.Unit != "" && !p.UnitUser {
-			keys = append(keys, [2]string{"e", "edit unit"})
+		// Actions act on the machine whytop runs on, so while a remote host
+		// is being viewed they are not offered at all. A footer that lists
+		// a key which then refuses is a footer people stop reading.
+		if m.remote == nil {
+			keys = append(keys, [2]string{"x", "stop"}, [2]string{"X", "kill"})
+			if p, ok := m.procByPID(m.detail.pid); ok && p.Unit != "" && !p.UnitUser {
+				keys = append(keys, [2]string{"e", "edit unit"})
+			}
 		}
-		if !m.detail.loaded || m.detail.restartBlocked == "" {
+		if m.remote == nil && (!m.detail.loaded || m.detail.restartBlocked == "") {
 			keys = append(keys, [2]string{"r", "restart"})
 		}
 		follow := "f live-log: on"
@@ -399,6 +430,13 @@ func (m model) renderFooter(w int) string {
 		keys = append(keys, [2]string{"j", "journal"}, [2]string{follow[:1], follow[2:]}, [2]string{"esc", "close"})
 	default:
 		keys = [][2]string{{"↑↓", "select"}, {"enter", "open"}, {"/", "filter"}}
+		// An active filter is the single most important thing to know about
+		// what is on screen: every row you are not seeing is hidden by it,
+		// and a list that silently shows a subset is how people end up
+		// concluding a process is gone.
+		if scope, q := m.filterQuery(); q != "" {
+			keys = append([][2]string{{scope.String() + " " + truncate(q, 16), "esc clears"}}, keys...)
+		}
 		// Only offered when there's something to jump to — a key that does
 		// nothing on a healthy box is a key people learn to ignore.
 		if len(m.findings()) > 0 {
@@ -414,7 +452,7 @@ func (m model) renderFooter(w int) string {
 			lock = "order: LOCKED"
 		}
 		keys = append(keys, [2]string{"s", "sort"}, [2]string{"L", lock}, [2]string{"K", "kernel"},
-			[2]string{"p", "pause"}, [2]string{"q", "quit"})
+			[2]string{"H", "hosts"}, [2]string{"p", "pause"}, [2]string{"q", "quit"})
 	}
 	var parts []string
 	for _, k := range keys {
@@ -439,7 +477,13 @@ func (m model) renderFooter(w int) string {
 	}
 	line := strings.Join(kept, gap)
 	if m.editing {
-		line = stAccent.Render("filter: ") + safeText(m.filter) + stMuted.Render("█") + "   " + line
+		// The scope is a chip, not a word in a sentence: it is the thing you
+		// change with Tab, so it has to look like a control rather than like
+		// part of the label.
+		scope, q := m.filterQuery()
+		bar := stFilterChip.Render(" "+scope.String()+" ") +
+			stAccent.Render(" ") + stPlain.Render(safeText(q)) + stMuted.Render("█")
+		line = bar + "   " + line
 	}
 	return line
 }

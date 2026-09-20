@@ -77,7 +77,9 @@ docker build -t whytop --build-arg VERSION=$(git describe --tags) .
 | NET↓, NET↑ | Per-process network throughput — see the caveat below |
 | UNIT, COMMAND | The systemd unit, and the command line two-toned so the program's own name stands out of the path |
 
-Every column sorts, by click or with `s`. The filter (`/`) searches all of them, and a bare number searches ports too: type `443` to find out what is serving it, or `port:443` to match only the port and nothing else.
+Every column sorts, by click or with `s`.
+
+**The filter has a scope.** `/` opens it, `Tab` cycles what it searches — all, port, user, unit, command, pid, state — and the chip in the filter bar says which one you are in. Typing `443` in the `all` scope casts a wide net and will also match PIDs and command lines containing 443; `Tab` to `port` and it means the listening port and nothing else. The typed prefixes are the same thing: `port:443` is the `port` scope, and a typed prefix wins over the cycled one.
 
 whytop uses the whole terminal, however wide it is — the extra columns go to `COMMAND`, since a truncated command line is the usual reason to want a wider window. As the terminal narrows, columns are given up in order (UNIT, then NET, then PORT) rather than squeezing COMMAND to an unreadable sliver.
 
@@ -89,6 +91,28 @@ whytop takes the second route, via `ss`, because a monitoring tool has no busine
 
 - **No `ss` (iproute2) on the host, or no root:** the columns disappear rather than showing zeros. A process whose traffic simply wasn't visible reads `?`, never `0 B/s` — those are different answers and only one of them is safe to act on.
 - **TCP only.** UDP sockets carry no equivalent counters.
+
+## Remote hosts
+
+whytop opens on the machine you are sitting on. Press `H` for the host list, or start with `whytop -host deploy@web01`.
+
+```
+ HOSTS
+● localhost                   this machine — no SSH
+  db01                        postgres@10.0.0.20   (ssh config)
+  web01                       deploy@10.0.0.11:2222   (ssh config)
+```
+
+Hosts come from `~/.ssh/config` (`-ssh-config`, or `c` in the panel, to read a different file), so the hosts you already maintain are simply there. `a` connects to one you type, as `host`, `user@host` or `user@host:port`.
+
+**Nothing is installed on the remote host.** whytop reads its `/proc` over the SSH session — no agent, no uploaded binary, nothing written to the far end. It works on any box you can already SSH into.
+
+- **Authentication is ssh-agent and keys only.** No passwords, so whytop never holds or stores a secret. If `ssh host` works, so does this.
+- **Host keys are verified against `~/.ssh/known_hosts`,** never blindly accepted. An unknown host is refused with its fingerprint, because the fix is to check it yourself rather than have whytop skip the check.
+- **Actions are disabled on remote hosts.** Stop, force-kill, restart, edit-unit and the file actions all run on the machine whytop is running on. A PID from a remote host would signal whatever process holds that number *here*, so those keys are refused by name and not even offered in the footer.
+- **Some columns are local-only for now**: systemd unit attribution, container IDs, and a process's open files, sockets and journal. The remote collector reads raw `/proc` rather than going through gopsutil, and those need more than `/proc` alone. The panel says so rather than showing zeros.
+
+Reading a host costs a handful of processes per refresh, not one per PID: the probe uses `tail -n +1` to read all of `/proc` in one go rather than forking `cat` a thousand times.
 
 ### The rest of the screen
 
@@ -113,7 +137,9 @@ The footer lists only the keys that do something on the current screen.
 | Where | Keys |
 |---|---|
 | List | `↑` `↓` select, `Enter` open, `/` filter, `Esc` clear filter, `g` go to the next problem, `p` pause |
-| List | `s` cycle sort, `S` reverse it, `L` lock/unlock the row order, `K` show/hide kernel threads |
+| List | `s` cycle sort, `S` reverse it, `L` lock/unlock the row order, `K` show/hide kernel threads, `H` hosts |
+| Filter | `Tab` cycle the scope, `Enter` apply, `Esc` clear |
+| Hosts | `↑` `↓` select, `Enter` connect, `a` add a host, `c` change ssh config, `r` reload, `Esc` close |
 | Process panel | `Tab` switch between the process tree and open files, `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `e` edit its unit file (asks to `daemon-reload` after), `j` reload journal, `f` pause/resume the live journal, `Esc` close |
 | Open files | `t` empty the file (reclaims its space, process keeps running), `c` close the descriptor |
 

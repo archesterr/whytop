@@ -88,20 +88,7 @@ func scrollNotice(total, start, end int) string {
 func (m model) renderProcs(w, h int) string {
 	list := m.procRows()
 	if len(list) == 0 {
-		msg := "No processes."
-		if f := m.filter; f != "" {
-			// A state filter that matches nothing is the normal outcome of
-			// jumping to a problem that has since cleared, so it says that
-			// rather than looking like a search that failed.
-			if st, ok := strings.CutPrefix(f, "state:"); ok {
-				msg = fmt.Sprintf("Nothing is in state %s right now — it may have cleared. Press esc to show everything.", strings.ToUpper(st))
-			} else if port, ok := strings.CutPrefix(f, "port:"); ok {
-				msg = fmt.Sprintf("Nothing is listening on port %s. Press esc to show everything.", port)
-			} else {
-				msg = fmt.Sprintf("No process matches %q. Press esc to clear the filter.", f)
-			}
-		}
-		return stMuted.Render(msg)
+		return stMuted.Render(m.emptyMessage())
 	}
 
 	cols := m.cols(w)

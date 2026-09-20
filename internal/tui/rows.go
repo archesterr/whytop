@@ -3,7 +3,6 @@ package tui
 import (
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/archesterr/whytop/internal/collect"
 )
@@ -32,41 +31,10 @@ func (m model) procRows() []collect.Proc {
 		list = append(list, p)
 	}
 
-	f := strings.ToLower(strings.TrimSpace(m.filter))
-	if f != "" {
-		// "state:D" matches the state column exactly rather than as free
-		// text, which is what lets the status line narrow the list to the
-		// processes a finding is actually about — searching for "d" would
-		// match half the command lines on the box.
-		if want, ok := strings.CutPrefix(f, "state:"); ok {
-			out := list[:0]
-			for _, p := range list {
-				if strings.EqualFold(p.State, want) {
-					out = append(out, p)
-				}
-			}
-			return m.order(out)
-		}
-		// "port:8080" matches the listening port exactly. Plain "8080"
-		// would also match any PID or command line containing 8080, which
-		// is the wrong answer to "who has port 8080" — the question the
-		// column exists for.
-		if want, ok := strings.CutPrefix(f, "port:"); ok {
-			out := list[:0]
-			for _, p := range list {
-				if hasPort(p, want) {
-					out = append(out, p)
-				}
-			}
-			return m.order(out)
-		}
+	if scope, q := m.filterQuery(); q != "" {
 		out := list[:0]
 		for _, p := range list {
-			hay := strconv.Itoa(int(p.PID)) + " " + strings.ToLower(p.Name+" "+p.User+" "+unitName(p.Unit)+" "+p.Cmdline+" "+p.Container+" "+p.Runtime)
-			// A bare number searches ports too: typing 443 to find out what
-			// is serving it is the obvious thing to try, and making people
-			// learn the port: prefix first would be a puzzle, not a filter.
-			if strconv.Itoa(int(p.PID)) == f || hasPort(p, f) || strings.Contains(hay, f) {
+			if scope.matches(p, q) {
 				out = append(out, p)
 			}
 		}

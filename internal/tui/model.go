@@ -14,6 +14,7 @@ import (
 
 	"github.com/archesterr/whytop/internal/actions"
 	"github.com/archesterr/whytop/internal/collect"
+	"github.com/archesterr/whytop/internal/remote"
 )
 
 // Options configures a Run.
@@ -22,6 +23,11 @@ type Options struct {
 	Version  string
 	PID      int
 	Port     int
+	// Host opens straight onto a remote host instead of this machine.
+	Host string
+	// SSHConfig overrides ~/.ssh/config, for people who keep a separate
+	// file for production.
+	SSHConfig string
 }
 
 type confirmState struct {
@@ -49,6 +55,9 @@ type detailState struct {
 	focus   detailFocus
 	fileSel int
 	journal string
+	// remote marks a panel whose per-process detail could not be read,
+	// because the process lives on another machine.
+	remote bool
 	// follow re-reads the journal on every refresh tick, which is what
 	// `journalctl -u <unit> -f` gives you at a shell. It's on by default:
 	// you open a process's panel to watch what it's doing, and a log that
@@ -65,6 +74,7 @@ type extraMsg struct {
 	extra          collect.Extra
 	unitStatus     map[string]string
 	restartBlocked string
+	remote         bool
 }
 type actionMsg struct {
 	ok      bool
@@ -95,7 +105,10 @@ type model struct {
 	sortKey string
 	sortDir int
 	filter  string
-	editing bool
+	// filterScope is the column the filter searches when the query carries
+	// no prefix of its own — cycled with Tab while the filter is open.
+	filterScope filterScope
+	editing     bool
 	// showKernel reveals kernel threads in the process list. Off by default:
 	// see Proc.Kernel.
 	showKernel bool
@@ -112,6 +125,15 @@ type model struct {
 
 	detail  *detailState
 	confirm *confirmState
+
+	// remote is nil when viewing this machine. Everything else in the model
+	// is about whichever host is being viewed, which is why switching hosts
+	// clears the selection and the locked order — a PID means a different
+	// process on a different box.
+	remote     *remote.Client
+	hosts      *hostPanel
+	hostErr    string
+	connecting string
 
 	toast      string
 	toastStyle func(...string) string
@@ -152,7 +174,19 @@ func Run(ctx context.Context, opt Options) error {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.collectCmd(0), m.pollOOMCmd(0))
+	cmds := []tea.Cmd{m.collectCmd(0), m.pollOOMCmd(0)}
+	if m.opt.Host != "" {
+		// -host connects in the background while the local screen fills in,
+		// so a slow or unreachable host shows an error over a working UI
+		// rather than a blank terminal and a wait.
+		h, err := parseTarget(m.opt.Host)
+		if err != nil {
+			cmds = append(cmds, func() tea.Msg { return connectedMsg{host: h, err: err} })
+		} else {
+			cmds = append(cmds, connectCmd(h))
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 const oomPollInterval = 5 * time.Second
@@ -169,10 +203,31 @@ func (m model) pollOOMCmd(after time.Duration) tea.Cmd {
 }
 
 func (m model) collectCmd(after time.Duration) tea.Cmd {
-	col := m.col
+	col, rc := m.col, m.remote
 	return tea.Tick(after, func(time.Time) tea.Msg {
+		if rc != nil {
+			s, err := rc.Snapshot(probeTimeout)
+			if err != nil {
+				return remoteErrMsg{host: rc.Host().Label(), err: err}
+			}
+			return snapMsg(s)
+		}
 		return snapMsg(col.Collect())
 	})
+}
+
+// probeTimeout bounds one remote reading. It is generous compared with the
+// refresh interval because a loaded host can be slow to fork, and a reading
+// that arrives late is still worth having — but a session that has silently
+// died must not wedge the refresh loop forever.
+const probeTimeout = 20 * time.Second
+
+// remoteErrMsg reports a failed reading. One failure is not a disconnect:
+// a host under load can miss a tick, so the error is shown and the loop
+// keeps trying rather than dropping the connection out from under someone.
+type remoteErrMsg struct {
+	host string
+	err  error
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -211,6 +266,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case extraMsg:
 		if m.detail != nil && m.detail.pid == msg.pid {
+			m.detail.remote = msg.remote
 			m.detail.extra = msg.extra
 			m.detail.unitStatus = msg.unitStatus
 			m.detail.restartBlocked = msg.restartBlocked
@@ -249,6 +305,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = ""
 		}
 		return m, nil
+
+	case connectedMsg:
+		m.connecting = ""
+		if msg.err != nil {
+			// The reason goes in the panel, because the fix is almost
+			// always something about that host — a key, a known_hosts
+			// entry — and it belongs next to the host it is about.
+			//
+			// The panel is opened if it isn't already: a -host that fails
+			// used to set this string where nothing rendered it, so the
+			// connection simply never happened and never said why.
+			m.hostErr = fmt.Sprintf("%s: %v", msg.host.Label(), msg.err)
+			if m.hosts == nil {
+				m.openHosts()
+			}
+			_, toast := m.showToastFor("Could not connect to "+msg.host.Label(), false, oomToastTTL)
+			return m, toast
+		}
+		if m.remote != nil {
+			m.remote.Close()
+		}
+		m.remote = msg.client
+		m.hosts, m.hostErr, m.snap = nil, "", nil
+		m.resetForHost()
+		_, toast := m.showToast("Connected to "+msg.host.Label(), true)
+		return m, tea.Batch(m.collectCmd(0), toast)
+
+	case remoteErrMsg:
+		if m.remote == nil || m.remote.Host().Label() != msg.host {
+			return m, nil // a stale reading from a host we already left
+		}
+		wait := m.opt.Interval
+		if wait <= 0 {
+			wait = 2 * time.Second
+		}
+		_, toast := m.showToast("Reading "+msg.host+" failed: "+msg.err.Error(), false)
+		return m, tea.Batch(toast, m.collectCmd(wait))
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -309,6 +402,12 @@ func (m *model) resolveDeepLink() tea.Cmd {
 }
 
 func (m model) loadExtraCmd(pid int32) tea.Cmd {
+	if m.remote != nil {
+		// /proc/<pid>/fd, the journal and systemctl are all read locally.
+		// Returning the local machine's answers for a remote PID would be
+		// worse than returning none: they would look plausible.
+		return func() tea.Msg { return extraMsg{pid: pid, remote: true} }
+	}
 	return func() tea.Msg {
 		extra := collect.ProcExtra(pid)
 		p, ok := m.procByPID(pid)
@@ -326,6 +425,9 @@ func (m model) loadExtraCmd(pid int32) tea.Cmd {
 }
 
 func (m model) loadJournalCmd(pid int32) tea.Cmd {
+	if m.remote != nil {
+		return nil
+	}
 	p, _ := m.procByPID(pid)
 	unit, user := p.Unit, p.UnitUser
 	return func() tea.Msg {
