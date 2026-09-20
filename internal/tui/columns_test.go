@@ -126,21 +126,35 @@ func TestNameColumnIsCappedOnWideTerminals(t *testing.T) {
 	}
 }
 
-// Everything is drawn at contentW and centred with padLeft; a click's screen
-// column is translated by the same amount. If these disagree, every click on
-// a wide terminal lands on the wrong column.
-func TestCentringAndClickOffsetAgree(t *testing.T) {
-	m := model{width: 200, height: 40}
-	if got := m.contentW(); got != maxContentW {
-		t.Errorf("contentW on a 200-column terminal = %d, want %d", got, maxContentW)
+// The UI uses the whole terminal, and a click's screen column is the column
+// the renderer laid out. If contentW and padLeft ever disagree again, every
+// click on a wide terminal lands on the wrong column.
+func TestFullWidthAndClickOffsetAgree(t *testing.T) {
+	for _, w := range []int{80, 132, 200, 400} {
+		m := model{width: w, height: 40}
+		if got := m.contentW(); got != w {
+			t.Errorf("contentW on a %d-column terminal = %d, want the whole terminal", w, got)
+		}
+		if got := m.padLeft(); got != 0 {
+			t.Errorf("padLeft on a %d-column terminal = %d, want 0", w, got)
+		}
 	}
-	if got := m.padLeft(); got != (200-maxContentW)/2 {
-		t.Errorf("padLeft = %d, want the content centred", got)
-	}
-	narrow := model{width: 90, height: 30}
-	if narrow.contentW() != 90 || narrow.padLeft() != 0 {
-		t.Errorf("a terminal narrower than the cap should not be padded: w=%d pad=%d",
-			narrow.contentW(), narrow.padLeft())
+}
+
+// Full width means the process table actually reaches the right edge — the
+// whole point of dropping the 132-column cap. COMMAND takes the slack.
+func TestProcTableFillsAWideTerminal(t *testing.T) {
+	for _, w := range []int{80, 190, 300} {
+		total := 0
+		for i, c := range procColumns(w) {
+			total += c.w
+			if i > 0 {
+				total += sepW
+			}
+		}
+		if total != w {
+			t.Errorf("columns at width %d sum to %d — the table does not fill the terminal", w, total)
+		}
 	}
 }
 

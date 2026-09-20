@@ -73,7 +73,9 @@ docker build -t whytop --build-arg VERSION=$(git describe --tags) .
 | Disks | IOPS, throughput, await, queue depth, utilization per device — plus the processes actually driving those numbers right now, a process stuck in D-state (blocked on I/O) always ranked first. Filesystem and inode usage. Hung network mounts flagged |
 | Network | Per-interface traffic, errors, drops. TCP retransmits, resets, new connections |
 
-Always visible: CPU, memory, I/O wait, load per core, and PSI pressure — and under them, a one-line verdict in plain words. Not `PSI io 22%`, but `⚠ 3 processes stuck waiting on disk · sda 98% busy · /var almost full (97%)`, or just `✓ Nothing obviously wrong right now`. You shouldn't need to already know that 0.7 load across 4 cores is fine but 20% I/O pressure is an emergency.
+whytop uses the whole terminal, however wide it is — the extra columns go to `COMMAND`, since a truncated command line is the usual reason to want a wider window.
+
+Always visible: CPU, memory, I/O wait, load per core, and PSI pressure — each with a gauge, so the shape of the machine's load registers before you've read a single number — and under them, a one-line verdict in plain words. Not `PSI io 22%`, but `⚠ 3 processes stuck waiting on disk · sda 98% busy · /var almost full (97%)`, or just `✓ Nothing obviously wrong right now`. You shouldn't need to already know that 0.7 load across 4 cores is fine but 20% I/O pressure is an emergency.
 
 **Every finding is a link.** Click one, or press `g` to walk them, and whytop goes to the rows it's about — "3 processes stuck waiting on disk" opens the process list filtered to exactly those three, whether there's one or eight of them. `Esc` clears the filter again. Findings that are averages rather than live counts (I/O wait, PSI) go to the Disks tab instead, since by the time you press `g` nothing may be blocked at that instant.
 
