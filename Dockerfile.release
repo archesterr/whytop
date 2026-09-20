@@ -1,0 +1,12 @@
+# The image goreleaser publishes on a tag. It packages the binary goreleaser
+# has already cross-compiled, so there is no Go toolchain and no build step
+# here — see Dockerfile to build from source instead.
+FROM debian:stable-slim
+
+# See Dockerfile for why systemd's client tools are here and gdb is not.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends systemd \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY whytop /usr/bin/whytop
+ENTRYPOINT ["/usr/bin/whytop"]

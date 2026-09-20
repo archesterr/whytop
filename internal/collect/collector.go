@@ -105,6 +105,13 @@ func collectUnits(s *Snapshot) {
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "systemctl", "list-units", "--type=service", "--all", "--no-legend", "--plain", "--no-pager").Output()
 	if err != nil {
+		s.UnitsCollected = true // asked and answered: there is nothing to wait for
+		s.UnitsErr = "systemd is not available here."
+		if _, lookErr := exec.LookPath("systemctl"); lookErr != nil {
+			s.UnitsErr = "No systemctl on this host."
+		} else if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+			s.UnitsErr = strings.TrimSpace(string(ee.Stderr))
+		}
 		return
 	}
 	s.UnitsCollected = true
