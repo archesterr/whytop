@@ -15,3 +15,41 @@ jobs:
       - run: go mod tidy && git diff --exit-code go.mod go.sum
       - run: go vet ./...
       - run: CGO_ENABLED=0 go build ./...
+      - run: go test ./...
+
+  # The release workflow only runs on a tag, so until now a broken container
+  # build could only be discovered by a release failing — which is how the
+  # v1.9.0 attempt found that Dockerfile.release was copying from the wrong
+  # path. This builds both images on every pull request instead.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # The image humans build from source.
+      - run: docker build -t whytop:ci --build-arg VERSION=ci .
+
+      # The image goreleaser publishes. goreleaser builds it during its
+      # *publish* phase, so `release --snapshot` skips it entirely and can't
+      # stand in for this — the build context it hands the Dockerfile has to
+      # be reproduced instead. Keep this layout in step with dockers_v2:
+      # one context for every platform, binaries under linux/<arch>/.
+      - name: Stage the release build context
+        run: |
+          set -eux
+          for arch in amd64 arm64; do
+            mkdir -p ctx/linux/"$arch"
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+              go build -trimpath -o ctx/linux/"$arch"/whytop ./cmd/whytop
+          done
+          cp Dockerfile.release ctx/Dockerfile
+      - uses: docker/build-push-action@v6
+        with:
+          context: ctx
+          platforms: linux/amd64,linux/arm64
+          push: false
