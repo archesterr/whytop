@@ -13,6 +13,26 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go mod tidy && git diff --exit-code go.mod go.sum
+
+      # `go get` silently raises go.mod's go directive to whatever the new
+      # dependency needs, and the Dockerfile pins its own golang image. When
+      # those drift apart nothing fails until the container build does,
+      # three minutes in, with an error about a toolchain rather than about
+      # the bump that caused it. This says so in seconds instead.
+      - name: Dockerfile toolchain matches go.mod
+        run: |
+          set -eu
+          need=$(awk '/^go /{print $2}' go.mod)
+          have=$(awk -F'[:-]' '/^FROM golang:/{print $2}' Dockerfile)
+          printf 'go.mod needs go %s; Dockerfile builds on golang:%s\n' "$need" "$have"
+          # Compare major.minor only: the image tag is a series (1.24), the
+          # directive is a point release (1.24.2), and any 1.24.x image
+          # satisfies a 1.24.x directive.
+          if [ "${need%.*}" != "$have" ]; then
+            echo "::error::go.mod requires go ${need} but Dockerfile builds on golang:${have}." \
+                 "Bump the FROM line, or pin the dependency that raised the go directive."
+            exit 1
+          fi
       - run: go vet ./...
       - run: CGO_ENABLED=0 go build ./...
       - run: go test ./...

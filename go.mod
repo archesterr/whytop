@@ -1,13 +1,13 @@
 module github.com/archesterr/whytop
 
-go 1.26.0
+go 1.24.2
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/muesli/termenv v0.16.0
 	github.com/shirou/gopsutil/v4 v4.24.12
-	golang.org/x/crypto v0.57.0
+	golang.org/x/crypto v0.44.0
 )
 
 require (
@@ -35,6 +35,6 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 )
