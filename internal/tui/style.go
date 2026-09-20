@@ -38,6 +38,9 @@ var (
 	colMemMid   = lipgloss.Color("#b79ae0")
 	colMemHigh  = lipgloss.Color("#d8a0ff")
 	colGaugeBg  = lipgloss.Color("#39414f")
+	colNet      = lipgloss.Color("#7fd6a8") // traffic moving
+	colPort     = lipgloss.Color("#f0c674") // a port someone can connect to
+	colCore     = lipgloss.Color("#6f9be0") // a core doing ordinary work
 )
 
 var (
@@ -79,6 +82,9 @@ var (
 	stMemMid   = lipgloss.NewStyle().Foreground(colMemMid)
 	stMemHigh  = lipgloss.NewStyle().Foreground(colMemHigh).Bold(true)
 	stGaugeBg  = lipgloss.NewStyle().Foreground(colGaugeBg)
+	stNet      = lipgloss.NewStyle().Foreground(colNet)
+	stPort     = lipgloss.NewStyle().Foreground(colPort).Bold(true)
+	stCore     = lipgloss.NewStyle().Foreground(colCore)
 )
 
 // colSep visibly separates table columns — a first-time user shouldn't have

@@ -1,19 +1,16 @@
 package tui
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Row 4 (0-indexed) is always the tab bar: row 0 header, rows 1-2 the two
-// physical lines of the vitals cards, row 3 the status line, row 4 tabs,
-// row 5 the rule line under them — see View()'s layout, which renderTab's
-// `avail := h-8` budget also assumes. Rows 6+ are the current tab's own
-// header + data rows.
+// The layout is fixed at the top of the screen, so a click's row says what
+// it landed on: row 0 the header, rows 1-3 the three physical lines of the
+// vitals block, row 4 the status line, row 5 the rule under it, row 6 the
+// column header, rows 7+ the data. renderList's height budget assumes the
+// same shape — see View().
 const (
-	statusRow     = 3
-	tabBarRow     = 4
+	statusRow     = 4
 	listHeaderRow = 6
 	listFirstRow  = 7
 )
@@ -70,13 +67,10 @@ func (m model) handleClick(x, y int) (tea.Model, tea.Cmd) {
 	if y == statusRow {
 		return m.clickFinding(x)
 	}
-	if y == tabBarRow {
-		return m.clickTab(x)
-	}
-	if y == listHeaderRow && m.tab == tabProcs {
+	if y == listHeaderRow {
 		return m.clickHeader(x)
 	}
-	if (m.tab == tabProcs || m.tab == tabPorts) && y >= listFirstRow {
+	if y >= listFirstRow {
 		return m.clickRow(y - listFirstRow)
 	}
 	return m, nil
@@ -86,7 +80,7 @@ func (m model) handleClick(x, y int) (tea.Model, tea.Cmd) {
 // way that column is usually read (biggest-first for numbers, A-to-Z for
 // text), and clicking the column you're already sorted by reverses it.
 func (m *model) clickHeader(x int) (tea.Model, tea.Cmd) {
-	key := colAt(procColumns(m.contentW()), x)
+	key := colAt(m.cols(m.contentW()), x)
 	if key == "" {
 		return *m, nil
 	}
@@ -114,16 +108,6 @@ func (m *model) clickFinding(x int) (tea.Model, tea.Cmd) {
 	return *m, nil
 }
 
-func (m model) clickTab(x int) (tea.Model, tea.Cmd) {
-	for _, r := range tabRegions(m.tabCounts()) {
-		if x >= r.x0 && x < r.x1 {
-			m.tab = r.t
-			return m, nil
-		}
-	}
-	return m, nil
-}
-
 func (m *model) clickRow(idx int) (tea.Model, tea.Cmd) {
 	rows := m.rowKeys()
 	if idx < 0 || len(rows) == 0 {
@@ -132,46 +116,18 @@ func (m *model) clickRow(idx int) (tea.Model, tea.Cmd) {
 	// A click's row index is relative to what's currently drawn, which
 	// (like the arrow keys) may be scrolled to follow the selection rather
 	// than always starting at row 0 — see windowRows in tables.go.
-	i := int(m.tab)
 	selIdx := -1
 	for j, r := range rows {
-		if r.key == m.sel[i] {
+		if r.key == m.sel {
 			selIdx = j
 			break
 		}
 	}
-	start, end := windowRows(len(rows), selIdx, m.tabRowsBudget())
+	start, end := windowRows(len(rows), selIdx, m.listRowsBudget())
 	target := start + idx
 	if target < start || target >= end {
 		return *m, nil
 	}
-	m.sel[i] = rows[target].key
+	m.sel = rows[target].key
 	return m.openSelected()
-}
-
-// tabRegion is a tab's horizontal span in the rendered tab bar, in terminal
-// columns, plus the exact text renderTabs draws for it. Both rendering and
-// click hit-testing are built from this single source so they can't drift
-// out of sync with each other.
-type tabRegion struct {
-	t         tab
-	x0, x1    int
-	base      string // e.g. " 1 Processes "
-	countText string // e.g. "42 ", or "" when not yet known
-}
-
-func tabRegions(counts map[tab]int) []tabRegion {
-	var regions []tabRegion
-	x := 0
-	for _, t := range []tab{tabProcs, tabPorts, tabDisks, tabNet} {
-		base := fmt.Sprintf(" %d %s ", int(t)+1, t.String())
-		countText := ""
-		if n, ok := counts[t]; ok && n >= 0 {
-			countText = fmt.Sprintf("%d ", n)
-		}
-		width := len(base) + len(countText)
-		regions = append(regions, tabRegion{t: t, x0: x, x1: x + width, base: base, countText: countText})
-		x += width + 1 // the space joining tabs
-	}
-	return regions
 }

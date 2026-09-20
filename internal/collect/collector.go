@@ -4,10 +4,11 @@ import (
 	"math"
 	"net"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,9 +22,12 @@ import (
 
 // Collector samples the system. Collect must not be called concurrently.
 type Collector struct {
-	// WantConns enables socket collection. It walks every /proc/<pid>/fd,
-	// so it only runs while a view needs it.
-	WantConns atomic.Bool
+	osOnce   sync.Once
+	osName   string
+	osKernel string
+
+	prevCores []cpu.TimesStat
+	prevSock  map[string]sockBytes
 
 	boot     time.Time
 	prevAt   time.Time
@@ -66,6 +70,7 @@ func (c *Collector) Collect() *Snapshot {
 
 	s := &Snapshot{At: now, Root: os.Geteuid() == 0, ByPID: map[int32]int{}}
 	s.Host, _ = os.Hostname()
+	s.OS, s.Kernel = c.osRelease()
 	if up, err := host.Uptime(); err == nil {
 		s.Uptime = time.Duration(up) * time.Second
 	}
@@ -77,9 +82,12 @@ func (c *Collector) Collect() *Snapshot {
 	c.collectMem(s)
 	collectPSI(s)
 	c.collectProcs(s, elapsed)
-	if c.WantConns.Load() {
-		c.collectConns(s)
-	}
+	// Sockets are no longer optional: the process table has a PORT column,
+	// so every tick needs them. They used to be gated behind "is the Ports
+	// tab open", which is the only reason that gate existed.
+	c.collectConns(s)
+	c.attachSockets(s)
+	c.collectNetRates(s, elapsed)
 	c.collectDisks(s, elapsed)
 	c.collectFS(s)
 	c.collectNet(s, elapsed)
@@ -88,8 +96,25 @@ func (c *Collector) Collect() *Snapshot {
 	return s
 }
 
+// osRelease is read once and cached: the distribution does not change while
+// whytop is running, and re-reading a file every two seconds to learn the
+// same answer is work the refresh loop doesn't need.
+func (c *Collector) osRelease() (string, string) {
+	c.osOnce.Do(func() {
+		if info, err := host.Info(); err == nil {
+			c.osName = strings.TrimSpace(info.Platform + " " + info.PlatformVersion)
+			c.osKernel = info.KernelVersion
+		}
+		if c.osName == "" {
+			c.osName = runtime.GOOS
+		}
+	})
+	return c.osName, c.osKernel
+}
+
 func (c *Collector) collectCPU(s *Snapshot) {
 	s.CPU.Cores, _ = cpu.Counts(true)
+	c.collectPerCore(s)
 	ts, err := cpu.Times(false)
 	if err != nil || len(ts) == 0 {
 		return
@@ -108,6 +133,29 @@ func (c *Collector) collectCPU(s *Snapshot) {
 		}
 	}
 	c.prevCPU = &cur
+}
+
+// collectPerCore turns each core's cumulative times into a busy percentage
+// since the last sample, the same way collectCPU does for the total. It keeps
+// its own previous sample because the aggregate one is a different shape.
+func (c *Collector) collectPerCore(s *Snapshot) {
+	ts, err := cpu.Times(true)
+	if err != nil || len(ts) == 0 {
+		return
+	}
+	if len(c.prevCores) == len(ts) {
+		s.CPU.PerCore = make([]float64, len(ts))
+		for i, cur := range ts {
+			p := c.prevCores[i]
+			total := cpuTotal(cur) - cpuTotal(p)
+			if total <= 0 {
+				continue
+			}
+			idle := (cur.Idle - p.Idle + cur.Iowait - p.Iowait) / total * 100
+			s.CPU.PerCore[i] = finite(100 - idle)
+		}
+	}
+	c.prevCores = ts
 }
 
 // guest time is already included in user on Linux.

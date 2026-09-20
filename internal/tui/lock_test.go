@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/archesterr/whytop/internal/collect"
 )
 
@@ -106,7 +104,7 @@ func TestChangingSortWhileLockedRefreezesTheNewOrder(t *testing.T) {
 // The footer has to say which state the list is in. "L order" alone doesn't
 // tell you whether the rows under you are moving.
 func TestFooterNamesTheLockState(t *testing.T) {
-	m := model{snap: lockSnap(1), sortKey: "cpu", tab: tabProcs, width: 200}
+	m := model{snap: lockSnap(1), sortKey: "cpu", width: 200}
 	if out := stripANSI(m.renderFooter(200)); !strings.Contains(out, "order: live") {
 		t.Errorf("an unlocked list should say so:\n%s", out)
 	}
@@ -133,17 +131,14 @@ func TestEditUnitFromProcessDetail(t *testing.T) {
 	}
 }
 
-func TestUnitsTabIsGone(t *testing.T) {
-	if numTabs != 4 {
-		t.Fatalf("numTabs = %d, want 4", numTabs)
-	}
-	if n := len(tabRegions(map[tab]int{})); n != 4 {
-		t.Errorf("tab bar draws %d tabs, want 4", n)
-	}
-	m := model{snap: lockSnap(1), sortKey: "cpu", tab: tabProcs}
-	for i := 0; i < numTabs+1; i++ {
-		next, _ := m.handleListKey(tea.KeyMsg{Type: tea.KeyTab})
-		m = next.(model) // must not panic on tab.String()
-		_ = m.tab.String()
+// There is one list now. The tab machinery is gone, not hidden: a leftover
+// tab index would silently make filter/sort state per-tab again.
+func TestThereIsOnlyOneList(t *testing.T) {
+	m := model{snap: lockSnap(1), sortKey: "cpu", width: 100, height: 30}
+	out := stripANSI(m.View())
+	for _, gone := range []string{"1 Processes", "2 Ports", "3 Disks", "4 Network"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("the tab bar is still drawn: found %q", gone)
+		}
 	}
 }

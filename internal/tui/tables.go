@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -90,12 +89,14 @@ func (m model) renderProcs(w, h int) string {
 	list := m.procRows()
 	if len(list) == 0 {
 		msg := "No processes."
-		if f := m.filter[tabProcs]; f != "" {
+		if f := m.filter; f != "" {
 			// A state filter that matches nothing is the normal outcome of
 			// jumping to a problem that has since cleared, so it says that
 			// rather than looking like a search that failed.
 			if st, ok := strings.CutPrefix(f, "state:"); ok {
 				msg = fmt.Sprintf("Nothing is in state %s right now — it may have cleared. Press esc to show everything.", strings.ToUpper(st))
+			} else if port, ok := strings.CutPrefix(f, "port:"); ok {
+				msg = fmt.Sprintf("Nothing is listening on port %s. Press esc to show everything.", port)
 			} else {
 				msg = fmt.Sprintf("No process matches %q. Press esc to clear the filter.", f)
 			}
@@ -103,17 +104,7 @@ func (m model) renderProcs(w, h int) string {
 		return stMuted.Render(msg)
 	}
 
-	cols := procColumns(w)
-	showUnit := false
-	var unitW, cmdW int
-	for _, c := range cols {
-		switch c.key {
-		case "unit":
-			showUnit, unitW = true, c.w
-		case "command":
-			cmdW = c.w
-		}
-	}
+	cols := m.cols(w)
 
 	// The sorted column is named in its own header rather than only in the
 	// footer: an arrow on the column you're looking at is how every table in
@@ -135,7 +126,7 @@ func (m model) renderProcs(w, h int) string {
 
 	var lines []string
 	lines = append(lines, header)
-	selKey := m.sel[tabProcs]
+	selKey := m.sel
 	selIdx := -1
 	for i, p := range list {
 		if strconv.Itoa(int(p.PID)) == selKey {
@@ -147,20 +138,12 @@ func (m model) renderProcs(w, h int) string {
 	for i := start; i < end; i++ {
 		p := list[i]
 		sel := i == selIdx
-		rowCells := []string{
-			gutterCell(sel),
-			cell(strconv.Itoa(int(p.PID)), 6, true, withBG(stMuted, sel)),
-			userCell(p.User, 11, sel),
-			cell(p.State, 3, false, withBG(stateStyle(p.State), sel)),
-			cell(f1(p.CPU), 6, true, withBG(lvl(p.CPU, 50, 90), sel)),
-			memCell(p.RSS, m.snap.Mem.Total, 9, sel),
-			ioCell(p.IOHidden, p.ReadBps, 9, sel),
-			ioCell(p.IOHidden, p.WriteBps, 9, sel),
+		// Built from the same column list the header is, so a column that
+		// is dropped on a narrow terminal is dropped from both at once.
+		rowCells := make([]string, 0, len(cols))
+		for _, c := range cols {
+			rowCells = append(rowCells, m.procCell(c, p, sel))
 		}
-		if showUnit {
-			rowCells = append(rowCells, cell(unitName(p.Unit), unitW, false, withBG(stAccent, sel)))
-		}
-		rowCells = append(rowCells, cmdCell(cmdOf(p), cmdW, sel))
 		lines = append(lines, joinColsSel(sel, rowCells...))
 	}
 	if end < len(list) || start > 0 {
@@ -169,99 +152,66 @@ func (m model) renderProcs(w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m model) renderPorts(w, h int) string {
-	if m.snap == nil || !m.snap.ConnsCollected {
-		return stMuted.Render("Reading sockets…")
+// procCell renders one column of one process row.
+func (m model) procCell(c procCol, p collect.Proc, sel bool) string {
+	switch c.key {
+	case "":
+		return gutterCell(sel)
+	case "pid":
+		return cell(strconv.Itoa(int(p.PID)), c.w, true, withBG(stMuted, sel))
+	case "user":
+		return userCell(p.User, c.w, sel)
+	case "state":
+		return cell(p.State, c.w, false, withBG(stateStyle(p.State), sel))
+	case "cpu":
+		return cell(f1(p.CPU), c.w, true, withBG(lvl(p.CPU, 50, 90), sel))
+	case "mem":
+		return memCell(p.RSS, m.snap.Mem.Total, c.w, sel)
+	case "read":
+		return ioCell(p.IOHidden, p.ReadBps, c.w, sel)
+	case "write":
+		return ioCell(p.IOHidden, p.WriteBps, c.w, sel)
+	case "rx":
+		return netCell(p.NetKnown, p.NetRxBps, c.w, sel)
+	case "tx":
+		return netCell(p.NetKnown, p.NetTxBps, c.w, sel)
+	case "port":
+		return portCell(p, c.w, sel)
+	case "unit":
+		return cell(unitName(p.Unit), c.w, false, withBG(stAccent, sel))
+	default:
+		return cmdCell(cmdOf(p), c.w, sel)
 	}
-	list := m.portRows()
-	if len(list) == 0 {
-		msg := "No listening sockets."
-		if m.filter[tabPorts] != "" {
-			msg = fmt.Sprintf("No socket matches %q.", m.filter[tabPorts])
-		}
-		return stMuted.Render(msg)
-	}
-	// A socket's owning process gets the same MEM column every other table
-	// shows it with — it's the first thing you want after "which process is
-	// this". It's the column that goes when the terminal is too narrow.
-	const memW = 9
-	fixed := gutterW + 6 + 6 + 15 + 11 + 16 + 6
-	remoteW := w - fixed - memW - 8*sepW
-	showMem := remoteW >= 12
-	if !showMem {
-		remoteW = w - fixed - 7*sepW
-	}
-	if remoteW < 10 {
-		remoteW = 10
-	}
-	headerCells := []string{hdrCell("", gutterW, stHdrCell), hdrCell("PORT", 6, stHdrCell), hdrCell("PROTO", 6, stHdrCell), hdrCell("ADDRESS", 15, stHdrCell),
-		hdrCell("STATE", 11, stHdrCell), hdrCell("PROCESS", 16, stHdrCell), hdrCell("PID", 6, stHdrCell)}
-	if showMem {
-		headerCells = append(headerCells, hdrCell("MEM", memW, stHdrCell))
-	}
-	headerCells = append(headerCells, hdrCell("REMOTE", remoteW, stHdrCell))
-	header := tableHeader(w, headerCells...)
+}
 
-	var lines []string
-	lines = append(lines, header)
-	selKey := m.sel[tabPorts]
-	selIdx := -1
-	for i, c := range list {
-		if connKey(c) == selKey {
-			selIdx = i
-			break
-		}
+// netCell distinguishes "no traffic" from "we could not measure it". Those
+// are different answers, and printing 0 B/s for the second one is a lie the
+// operator would act on — see collect/netrate.go for when it happens.
+func netCell(known bool, v float64, w int, sel bool) string {
+	if !known {
+		return cell("?", w, true, withBG(stFaint, sel))
 	}
-	start, end := windowRows(len(list), selIdx, h-1)
-	for i := start; i < end; i++ {
-		c := list[i]
-		sel := i == selIdx
-		proc, ok := m.procByPID(c.PID)
-		name := withBG(stFaint, sel).Render("hidden")
-		if ok {
-			name = withBG(stCmd, sel).Render(truncate(safeText(proc.Name), 16))
-		}
-		addrStyle := stPlain
-		addr := c.LocalIP
-		switch {
-		case addr == "" || addr == "0.0.0.0" || addr == "::":
-			addrStyle = stWarn
-			if addr == "" {
-				addr = "*"
-			}
-		case strings.HasPrefix(addr, "127.") || addr == "::1":
-			addrStyle = stOK
-		}
-		stStyle := stPlain
-		if c.State == "CLOSE_WAIT" {
-			stStyle = stCrit
-		} else if c.State == "LISTEN" {
-			stStyle = stOK
-		}
-		pidStr := "–"
-		if c.PID > 0 {
-			pidStr = strconv.Itoa(int(c.PID))
-		}
-		rowCells := []string{gutterCell(sel),
-			cell(strconv.Itoa(int(c.LPort)), 6, true, withBG(stPlain.Bold(true), sel)), cell(c.Proto, 6, false, withBG(stMuted, sel)),
-			cell(addr, 15, false, withBG(addrStyle, sel)), cell(c.State, 11, false, withBG(stStyle, sel)), pad(name, 16, sel),
-			cell(pidStr, 6, true, withBG(stPlain, sel))}
-		if showMem {
-			// "–" not "0 B" when the process isn't visible: no measurement,
-			// rather than a measurement of nothing.
-			memText, memStyle := "–", withBG(stFaint, sel)
-			if ok {
-				memText, memStyle = bytesFmt(float64(proc.RSS)), withBG(stPlain, sel)
-			}
-			rowCells = append(rowCells, cell(memText, memW, true, memStyle))
-		}
-		rowCells = append(rowCells, cell(c.Remote, remoteW, false, withBG(stMuted, sel)))
-		lines = append(lines, joinColsSel(sel, rowCells...))
+	st := stPlain
+	if v > 0 {
+		st = stNet
 	}
-	if end < len(list) || start > 0 {
-		lines = append(lines, stFaint.Render(scrollNotice(len(list), start, end)))
+	return cell(rateFmt(v), w, true, withBG(st, sel))
+}
+
+// portCell shows the lowest port a process listens on, and how many more it
+// has. A process listening on nothing gets a blank rather than a dash: on a
+// full screen of processes most listen on nothing, and a column of dashes is
+// just noise drawn over the answer.
+func portCell(p collect.Proc, w int, sel bool) string {
+	if len(p.Ports) == 0 {
+		if p.Estab > 0 {
+			// Not listening, but talking to something — worth telling apart
+			// from a process with no sockets at all.
+			return cell("→"+strconv.Itoa(p.Estab), w, true, withBG(stFaint, sel))
+		}
+		return cell("", w, true, withBG(stPlain, sel))
 	}
-	return strings.Join(lines, "\n")
+	return cell(p.PortList(), w, true, withBG(stPort, sel))
 }
 
 // pad pads an already-styled string (rendered separately from cell()) to a
@@ -364,154 +314,4 @@ func capRows[T any](rows []T, maxRows int, render func(T) string) []string {
 		lines = append(lines, render(r))
 	}
 	return lines
-}
-
-func (m model) renderDisks(w, h int) string {
-	// A fixed slice goes to "who is actually driving this number" — the one
-	// question raw device counters can never answer on their own — and the
-	// other two sections split what's left, same as before.
-	procH := 7
-	if h < 24 {
-		procH = 5
-	}
-	rest := max0(h - procH)
-	half := max0(rest/2 - 2)
-	if half < 3 {
-		half = 3
-	}
-
-	var b strings.Builder
-	b.WriteString(stHeader.Render("BLOCK DEVICES") + "\n")
-	if len(m.snap.Disks) == 0 {
-		b.WriteString(stMuted.Render("No block devices.") + "\n")
-	} else {
-		b.WriteString(tableHeader(w, hdrCell("DEVICE", 10, stHdrCell), hdrCell("R/S", 7, stHdrCell), hdrCell("W/S", 7, stHdrCell),
-			hdrCell("READ", 9, stHdrCell), hdrCell("WRITE", 9, stHdrCell), hdrCell("AWAIT", 8, stHdrCell),
-			hdrCell("QUEUE", 6, stHdrCell), hdrCell("UTIL%", 6, stHdrCell)) + "\n")
-		lines := capRows(m.snap.Disks, half, func(d collect.Disk) string {
-			return joinCols(cell(d.Name, 10, false, stPlain.Bold(true)), cell(f1(d.RIOPS), 7, true, stPlain), cell(f1(d.WIOPS), 7, true, stPlain),
-				cell(rateFmt(d.RBps), 9, true, stPlain), cell(rateFmt(d.WBps), 9, true, stPlain),
-				cell(f1(d.AwaitMs), 8, true, lvl(d.AwaitMs, 20, 100)), cell(f1(d.Queue), 6, true, lvl(d.Queue, 1, 4)),
-				cell(f1(d.Util), 6, true, lvl(d.Util, 70, 90)))
-		})
-		b.WriteString(strings.Join(lines, "\n") + "\n")
-	}
-
-	b.WriteString(stHeader.Render("TOP PROCESSES BY DISK I/O") + "\n")
-	b.WriteString(m.renderDiskProcs(w, procH) + "\n")
-
-	b.WriteString(stHeader.Render("FILESYSTEMS") + "\n")
-	if len(m.snap.FS) == 0 {
-		b.WriteString(stMuted.Render("No filesystems."))
-	} else {
-		mountW := nameColW(w, 46, []int{8, 9, 9, 7, 7})
-		if mountW < 10 {
-			mountW = 10
-		}
-		b.WriteString(tableHeader(w, hdrCell("MOUNT", mountW, stHdrCell), hdrCell("TYPE", 8, stHdrCell), hdrCell("SIZE", 9, stHdrCell),
-			hdrCell("FREE", 9, stHdrCell), hdrCell("USED%", 7, stHdrCell), hdrCell("INODE%", 7, stHdrCell)) + "\n")
-		lines := capRows(m.snap.FS, half, func(f collect.FS) string {
-			if f.Stale {
-				return cell(f.Mount, mountW, false, stPlain.Bold(true)) + colSep + stCrit.Render(truncate("not responding — statfs is hanging (dead network mount?)", w-mountW-sepW))
-			}
-			return joinCols(cell(f.Mount, mountW, false, stPlain.Bold(true)), cell(f.Type, 8, false, stMuted),
-				cell(bytesFmt(float64(f.Total)), 9, true, stPlain), cell(bytesFmt(float64(f.Free)), 9, true, stPlain),
-				cell(f1(f.UsedPct), 7, true, lvl(f.UsedPct, 80, 90)), cell(f1(f.InodePct), 7, true, lvl(f.InodePct, 80, 90)))
-		})
-		b.WriteString(strings.Join(lines, "\n"))
-	}
-	return b.String()
-}
-
-// renderDiskProcs answers the question device counters alone never can: not
-// just "this disk is busy" but which process is doing it. A process that's
-// actually blocked on I/O right now (state D) always sorts to the top, even
-// if its measured bytes/sec this particular tick happens to be low — that's
-// the one worth looking at. Below that, everything with nonzero read+write
-// this tick, ranked by total throughput.
-func (m model) renderDiskProcs(w, h int) string {
-	procs := make([]collect.Proc, 0)
-	for _, p := range m.snap.Procs {
-		if p.State == "D" || p.ReadBps+p.WriteBps > 0 {
-			procs = append(procs, p)
-		}
-	}
-	if len(procs) == 0 {
-		return stMuted.Render("No process disk activity right now.")
-	}
-	sort.Slice(procs, func(i, j int) bool {
-		di, dj := procs[i].State == "D", procs[j].State == "D"
-		if di != dj {
-			return di
-		}
-		return procs[i].ReadBps+procs[i].WriteBps > procs[j].ReadBps+procs[j].WriteBps
-	})
-	cmdW := w - (6 + 11 + 3 + 9 + 9 + 9) - 5*sepW
-	if cmdW < 12 {
-		cmdW = 12
-	}
-	header := tableHeader(w, hdrCell("PID", 6, stHdrCell), hdrCell("USER", 11, stHdrCell), hdrCell("ST", 3, stHdrCell),
-		hdrCell("MEM", 9, stHdrCell), hdrCell("READ", 9, stHdrCell), hdrCell("WRITE", 9, stHdrCell), hdrCell("COMMAND", cmdW, stHdrCell))
-	lines := capRows(procs, h-1, func(p collect.Proc) string {
-		// Painted exactly like the Processes tab's rows: the same data in two
-		// places should not need reading twice in two different ways.
-		return joinCols(cell(strconv.Itoa(int(p.PID)), 6, true, stMuted), userCell(p.User, 11, false),
-			cell(p.State, 3, false, stateStyle(p.State)), memCell(p.RSS, m.snap.Mem.Total, 9, false),
-			ioCell(p.IOHidden, p.ReadBps, 9, false), ioCell(p.IOHidden, p.WriteBps, 9, false),
-			cmdCell(cmdOf(p), cmdW, false))
-	})
-	return header + "\n" + strings.Join(lines, "\n")
-}
-
-func (m model) renderNet(w, h int) string {
-	var b strings.Builder
-	t := m.snap.TCP
-	b.WriteString(stHeader.Render("TCP") + "\n")
-	if !t.Available {
-		b.WriteString(stMuted.Render("TCP counters unavailable.") + "\n")
-	} else {
-		// Short labels and single-char separators, not three-space gaps: the
-		// old wording ("established", "new out", "rx errs") plus literal
-		// triple-spacing overflowed an 80-column terminal on its own, before
-		// any column-separator changes.
-		b.WriteString(joinCols(
-			"estab "+stPlain.Bold(true).Render(strconv.FormatInt(t.Established, 10)),
-			"out "+f1(t.ActivePs)+"/s",
-			"in "+f1(t.PassivePs)+"/s",
-			"retrans "+lvl(t.RetransPct, 1, 5).Render(f1(t.RetransPs)+"/s"),
-			"resets "+f1(t.ResetPs)+"/s",
-			"rx-err "+lvl(t.InErrPs, 0.1, 10).Render(f1(t.InErrPs)),
-		) + "\n")
-	}
-	b.WriteString(stHeader.Render("INTERFACES") + "\n")
-	if len(m.snap.NICs) == 0 {
-		b.WriteString(stMuted.Render("No interfaces."))
-	} else {
-		nameW := nameColW(w, 24, []int{9, 9, 8, 8, 7, 7})
-		if nameW < 8 {
-			nameW = 8
-		}
-		b.WriteString(tableHeader(w, hdrCell("NAME", nameW, stHdrCell), hdrCell("RX", 9, stHdrCell), hdrCell("TX", 9, stHdrCell),
-			hdrCell("PPS IN", 8, stHdrCell), hdrCell("PPS OUT", 8, stHdrCell), hdrCell("ERR/S", 7, stHdrCell), hdrCell("DROP/S", 7, stHdrCell)) + "\n")
-		// A container host can have dozens to hundreds of veth interfaces —
-		// cap the list against the tab's height budget like every other
-		// table does, instead of printing an unbounded interface list.
-		maxRows := max0(h - 5)
-		if maxRows < 3 {
-			maxRows = 3
-		}
-		lines := capRows(m.snap.NICs, maxRows, func(n collect.NIC) string {
-			errStyle, dropStyle := stPlain, stPlain
-			if n.ErrPs > 0 {
-				errStyle = stCrit
-			}
-			if n.DropPs > 0 {
-				dropStyle = stWarn
-			}
-			return joinCols(cell(n.Name, nameW, false, stPlain.Bold(true)), cell(rateFmt(n.RxBps), 9, true, stPlain), cell(rateFmt(n.TxBps), 9, true, stPlain),
-				cell(f1(n.RxPps), 8, true, stPlain), cell(f1(n.TxPps), 8, true, stPlain), cell(f1(n.ErrPs), 7, true, errStyle), cell(f1(n.DropPs), 7, true, dropStyle))
-		})
-		b.WriteString(strings.Join(lines, "\n"))
-	}
-	return b.String()
 }
