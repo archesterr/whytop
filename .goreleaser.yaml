@@ -25,6 +25,11 @@ nfpms:
 # dockers_v2 builds and pushes both architectures and the manifest that
 # points at them, so `docker pull ghcr.io/archesterr/whytop:1.2.3` resolves
 # to the right one on amd64 and arm64 alike.
+#
+# One build context serves every platform, and the binaries land under
+# linux/<arch>/ rather than at its root — Dockerfile.release copies through
+# TARGETOS/TARGETARCH to match, and the ci workflow rebuilds the same layout
+# so a release is never the first thing to find out they disagree.
 dockers_v2:
   - images:
       - "ghcr.io/archesterr/whytop"

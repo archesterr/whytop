@@ -8,5 +8,19 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends systemd \
  && rm -rf /var/lib/apt/lists/*
 
-COPY whytop /usr/bin/whytop
+# One build context serves every platform, so goreleaser lays the binaries out
+# per-platform rather than putting one at the root:
+#
+#   ├── Dockerfile
+#   └── linux/
+#       ├── amd64/whytop
+#       └── arm64/whytop
+#
+# TARGETOS and TARGETARCH are set by buildx for each platform it builds, which
+# is what picks the right one. A bare `COPY whytop` looks for /whytop, finds
+# nothing, and fails the release — which is exactly what it did.
+ARG TARGETOS
+ARG TARGETARCH
+COPY ${TARGETOS}/${TARGETARCH}/whytop /usr/bin/whytop
+
 ENTRYPOINT ["/usr/bin/whytop"]
