@@ -148,45 +148,6 @@ func TestRenderDiskProcsRanksBlockedProcessFirst(t *testing.T) {
 	}
 }
 
-func TestMoveUnitSelWraps(t *testing.T) {
-	snap := &collect.Snapshot{UnitsCollected: true, Units: []collect.Unit{
-		{Name: "a.service"}, {Name: "b.service"}, {Name: "c.service"},
-	}}
-	m := model{snap: snap, tab: tabUnits}
-	// Matches moveSel's existing semantics: idx starts at 0 when nothing is
-	// selected yet, then the delta is applied — so the first down lands on
-	// index 1, not index 0.
-	m.moveUnitSel(1)
-	if m.unitSel != "b.service" {
-		t.Fatalf("first down from nothing selected = %q, want b.service", m.unitSel)
-	}
-	m.moveUnitSel(1)
-	m.moveUnitSel(1) // one past the end
-	if m.unitSel != "c.service" {
-		t.Errorf("moving past the last unit should clamp, got %q", m.unitSel)
-	}
-}
-
-func TestHandleListKeyEditUnitWithNoSelectionToastsInsteadOfCrashing(t *testing.T) {
-	m := model{snap: &collect.Snapshot{UnitsCollected: true}, tab: tabUnits}
-	got, _ := m.handleListKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
-	if got.(model).toast == "" {
-		t.Error("pressing e with no unit selected should toast, not silently do nothing")
-	}
-}
-
-func TestRenderUnitsShowsActiveState(t *testing.T) {
-	snap := &collect.Snapshot{UnitsCollected: true, Units: []collect.Unit{
-		{Name: "nginx.service", Load: "loaded", Active: "active", Sub: "running", Description: "web server"},
-		{Name: "broken.service", Load: "loaded", Active: "failed", Sub: "failed", Description: "oops"},
-	}}
-	m := model{snap: snap, tab: tabUnits}
-	out := m.renderUnits(100, 20)
-	if !strings.Contains(out, "nginx.service") || !strings.Contains(out, "broken.service") {
-		t.Errorf("expected both units listed:\n%s", out)
-	}
-}
-
 func TestOOMPollWithNoKillsStaysSilent(t *testing.T) {
 	m := model{}
 	got, _ := m.Update(oomPollMsg{kills: nil})

@@ -29,19 +29,6 @@ type Snapshot struct {
 	FS    []FS
 	NICs  []NIC
 	TCP   TCP
-
-	Units          []Unit
-	UnitsCollected bool
-	// UnitsErr says why there are no units, when the reason isn't "not yet".
-	// Without it a host with no systemd — a container, most often — sits on
-	// "Reading systemd units…" forever, which reads as a hang rather than an
-	// answer.
-	UnitsErr string
-}
-
-// Unit is one systemd service unit, as `systemctl list-units` reports it.
-type Unit struct {
-	Name, Load, Active, Sub, Description string
 }
 
 type CPU struct {

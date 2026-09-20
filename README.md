@@ -48,7 +48,7 @@ whytop watches the *host*, so a container that can only see itself is a containe
 | `--cap-add=SYS_PTRACE` | Other users' per-process I/O and open files read as `hidden` |
 | `--cap-add=DAC_READ_SEARCH` | Same, for `/proc` entries the container user can't traverse |
 | `--cap-add=KILL` | Stop and force-kill fail |
-| `-v /run/systemd` | The Units tab says systemd isn't reachable (it won't sit there pretending to load) |
+| `-v /run/systemd` | Unit status, restart and `e` (edit unit file) can't reach systemd |
 | `-v /var/log/journal` | No journal, and OOM kills aren't detected |
 
 Two things the image genuinely cannot do:
@@ -72,7 +72,6 @@ docker build -t whytop --build-arg VERSION=$(git describe --tags) .
 | Ports | Listening sockets with owning process, its memory, and unit. Wildcard binds flagged. Established, time-wait, close-wait counts |
 | Disks | IOPS, throughput, await, queue depth, utilization per device — plus the processes actually driving those numbers right now, a process stuck in D-state (blocked on I/O) always ranked first. Filesystem and inode usage. Hung network mounts flagged |
 | Network | Per-interface traffic, errors, drops. TCP retransmits, resets, new connections |
-| Units | Every systemd service unit — load/active/sub state and the memory its processes are using — with `e` to edit its unit file in `$EDITOR` and, after you save and quit, a prompt to run `systemctl daemon-reload` |
 
 Always visible: CPU, memory, I/O wait, load per core, and PSI pressure — and under them, a one-line verdict in plain words. Not `PSI io 22%`, but `⚠ 3 processes stuck waiting on disk · sda 98% busy · /var almost full (97%)`, or just `✓ Nothing obviously wrong right now`. You shouldn't need to already know that 0.7 load across 4 cores is fine but 20% I/O pressure is an emergency.
 
@@ -82,7 +81,9 @@ A red banner surfaces immediately if the kernel OOM-killed a process — no need
 
 The process list hides kernel threads by default (`K` shows them). On an idle 4-core box those are ~90% of every PID on the system and never the thing you're troubleshooting.
 
-Opening a process shows its state, parent, CPU/memory/disk with children, its open files (path, fd, kind — not just a count against the limit), OOM score, container (if any), unit status and restart count, the full child tree, its own sockets, and the journal — which follows live, the way `journalctl -u <unit> -f` does, until you pause it with `f`. Stop/force-kill from the same screen acts on that process, so there's no separate "kill" control per open file or socket — they're all its own.
+**The process list can be pinned still.** Sorting by CPU is the right default and the reason the list squirms the moment you try to act on it: the row you're reaching for moves out from under the cursor on every refresh, because that's exactly what a busy process does. `L` locks the order — the numbers keep updating, the rows stay where you last saw them, and anything that starts afterwards appends at the bottom instead of shoving your row aside. Unlike `p` (pause), you're not left reading figures that have stopped being true. Change the sort while locked and it re-freezes on the new order. The footer always says which one you're in: `order: live` or `order: LOCKED`.
+
+Opening a process shows its state, parent, CPU/memory/disk with children, its open files (path, fd, kind — not just a count against the limit), OOM score, container (if any), unit status and restart count, the full child tree, its own sockets, and the journal — which follows live, the way `journalctl -u <unit> -f` does, until you pause it with `f`. If systemd started it, `e` opens that unit's file in `$EDITOR` right there — and after you save and quit, asks whether to run `systemctl daemon-reload`. Stop/force-kill from the same screen acts on that process, so there's no separate "kill" control per open file or socket — they're all its own.
 
 ## Keys
 
@@ -90,13 +91,11 @@ The footer lists only the keys that work on the current screen.
 
 | Where | Keys |
 |---|---|
-| Everywhere | `1`–`5` tabs (also `←` `→`/`Tab`/`h`/`l`), `g` go to the next problem, `p` pause |
-| Processes, Ports, Units | `↑` `↓` select |
-| Processes, Ports | `Enter` open, `/` filter, `Esc` clear filter |
-| Processes | `s` cycle sort, `S` reverse it, `K` show/hide kernel threads |
+| Everywhere | `1`–`4` tabs (also `←` `→`/`Tab`/`h`/`l`), `g` go to the next problem, `p` pause |
+| Processes, Ports | `↑` `↓` select, `Enter` open, `/` filter, `Esc` clear filter |
+| Processes | `s` cycle sort, `S` reverse it, `L` lock/unlock the row order, `K` show/hide kernel threads |
 | Ports | `a` all sockets / listening only |
-| Units | `e` edit unit file (asks to `daemon-reload` after) |
-| Process panel | `Tab` switch between the process tree and open files, `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `j` reload journal, `f` pause/resume the live journal, `Esc` close |
+| Process panel | `Tab` switch between the process tree and open files, `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `e` edit its unit file (asks to `daemon-reload` after), `j` reload journal, `f` pause/resume the live journal, `Esc` close |
 | Open files | `t` empty the file (reclaims its space, process keeps running), `c` close the descriptor |
 
 Every destructive action asks for confirmation. The mouse works too: click a tab to switch, click a column header to sort by it (click again to reverse), click a row to open it, scroll to move the selection.

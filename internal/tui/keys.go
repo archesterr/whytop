@@ -73,8 +73,6 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.tab = tabDisks
 	case "4":
 		m.tab = tabNet
-	case "5":
-		m.tab = tabUnits
 	case "right", "tab", "l":
 		m.tab = (m.tab + 1) % numTabs
 	case "left", "shift+tab", "h":
@@ -98,6 +96,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.sortKey = procSortCycle[(i+1)%len(procSortCycle)]
 			m.sortDir = defaultSortDir(m.sortKey)
+			m.relock()
 		}
 	case "S":
 		if m.tab == tabProcs {
@@ -105,6 +104,16 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.sortDir == 0 {
 				m.sortDir = -defaultSortDir(m.sortKey)
 			}
+			m.relock()
+		}
+	case "L":
+		if m.tab == tabProcs {
+			m.lockOrder = !m.lockOrder
+			m.relock()
+			if m.lockOrder {
+				return m.showToast("Order locked: rows stay put while their numbers change. L unlocks.", true)
+			}
+			return m.showToast("Order live again: rows re-sort as usage changes.", true)
 		}
 	case "a":
 		if m.tab == tabPorts {
@@ -119,17 +128,9 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.showToast("Kernel threads hidden. K shows them again.", true)
 		}
 	case "up", "k":
-		if m.tab == tabUnits {
-			m.moveUnitSel(-1)
-		} else {
-			m.moveSel(-1)
-		}
+		m.moveSel(-1)
 	case "down", "j":
-		if m.tab == tabUnits {
-			m.moveUnitSel(1)
-		} else {
-			m.moveSel(1)
-		}
+		m.moveSel(1)
 	case "g":
 		return m.jumpToFinding()
 	case "esc":
@@ -143,13 +144,6 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		return m.openSelected()
-	case "e":
-		if m.tab == tabUnits {
-			if u, ok := m.selectedUnit(); ok {
-				return m, m.editUnitCmd(u.Name)
-			}
-			return m.showToast("No unit selected.", false)
-		}
 	}
 	return m, nil
 }
@@ -309,6 +303,22 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			prompt: fmt.Sprintf("%s %s (PID %d)? [y/N]", verb, safeText(name), pid),
 			run:    func() tea.Cmd { return doSignal(pid, sig, started) },
 		}
+	case "e":
+		p, ok := m.procByPID(m.detail.pid)
+		if !ok {
+			break
+		}
+		// Editing a unit file from the process you were looking at is the
+		// whole point: you find the process that is misbehaving, and the
+		// thing that configures it is one key away rather than in another
+		// terminal. Nothing that isn't a systemd process has a file to edit.
+		if p.Unit == "" {
+			return m.showToast("This process was not started by systemd, so it has no unit file to edit.", false)
+		}
+		if p.UnitUser {
+			return m.showToast(safeText(unitName(p.Unit))+" is a user unit — edit it as its own user with systemctl --user edit.", false)
+		}
+		return m, m.editUnitCmd(p.Unit)
 	case "r":
 		p, ok := m.procByPID(m.detail.pid)
 		if !ok {

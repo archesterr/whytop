@@ -21,8 +21,6 @@ func TestAllTablesFit80ColumnsWithSeparators(t *testing.T) {
 		FS:             []collect.FS{{Mount: "/", Device: "/dev/sda1", Type: "ext4"}},
 		NICs:           []collect.NIC{{Name: "eth0"}},
 		TCP:            collect.TCP{Available: true},
-		Units:          []collect.Unit{{Name: "sshd.service", Load: "loaded", Active: "active", Sub: "running", Description: "OpenSSH server daemon"}},
-		UnitsCollected: true,
 	}
 	m := model{snap: snap, sortKey: "cpu", width: 80, height: 30}
 	byPID := map[int32]int{}
@@ -36,7 +34,6 @@ func TestAllTablesFit80ColumnsWithSeparators(t *testing.T) {
 		"ports":  m.renderPorts(80, 20),
 		"disks":  m.renderDisks(80, 20),
 		"net":    m.renderNet(80, 20),
-		"units":  m.renderUnits(80, 20),
 		"footer": m.renderFooter(80),
 	}
 	for name, out := range checks {

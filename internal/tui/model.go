@@ -23,13 +23,12 @@ const (
 	tabPorts
 	tabDisks
 	tabNet
-	tabUnits
 )
 
-const numTabs = 5
+const numTabs = 4
 
 func (t tab) String() string {
-	return [...]string{"Processes", "Ports", "Disks", "Network", "Units"}[t]
+	return [...]string{"Processes", "Ports", "Disks", "Network"}[t]
 }
 
 // Options configures a Run.
@@ -118,8 +117,15 @@ type model struct {
 	// see Proc.Kernel.
 	showKernel bool
 	sel        [2]string // selected row key, indexed by tabProcs/tabPorts
-	unitSel    string    // selected unit name, for the Units tab
 	findingSel int       // which status-line finding g jumps to next
+
+	// lockOrder freezes the process list's row order. See lockRank.
+	lockOrder bool
+	// lockRank is the position every PID held when the order was locked, so
+	// a row stays where the operator last saw it even as its CPU or memory
+	// moves under it. Processes that appear afterwards aren't in the map and
+	// sort below the frozen block, in the normal order for the column.
+	lockRank map[int32]int
 
 	detail  *detailState
 	confirm *confirmState
@@ -182,10 +188,8 @@ func (m model) pollOOMCmd(after time.Duration) tea.Cmd {
 func (m model) collectCmd(after time.Duration) tea.Cmd {
 	col := m.col
 	wantConns := m.tab == tabPorts || m.detail != nil || m.deepPort > 0
-	wantUnits := m.tab == tabUnits
 	return tea.Tick(after, func(time.Time) tea.Msg {
 		col.WantConns.Store(wantConns)
-		col.WantUnits.Store(wantUnits)
 		return snapMsg(col.Collect())
 	})
 }
