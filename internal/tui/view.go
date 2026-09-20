@@ -376,7 +376,11 @@ func (m model) renderFooter(w int) string {
 	case m.toast != "":
 		return m.toastStyle(m.toast)
 	case m.editing:
-		keys = [][2]string{{"enter", "apply"}, {"esc", "clear"}}
+		// The hint names what the current scope searches, because "port"
+		// and "command" narrow in very different ways and the difference is
+		// only obvious once it has already surprised you.
+		scope, _ := m.filterQuery()
+		keys = [][2]string{{"tab", "scope: " + scope.hint()}, {"enter", "apply"}, {"esc", "clear"}}
 	case m.detail != nil:
 		// The panel has two lists; the hints name whichever one has the
 		// cursor, so the keys on offer are the ones that will actually fire.
@@ -399,6 +403,13 @@ func (m model) renderFooter(w int) string {
 		keys = append(keys, [2]string{"j", "journal"}, [2]string{follow[:1], follow[2:]}, [2]string{"esc", "close"})
 	default:
 		keys = [][2]string{{"↑↓", "select"}, {"enter", "open"}, {"/", "filter"}}
+		// An active filter is the single most important thing to know about
+		// what is on screen: every row you are not seeing is hidden by it,
+		// and a list that silently shows a subset is how people end up
+		// concluding a process is gone.
+		if scope, q := m.filterQuery(); q != "" {
+			keys = append([][2]string{{scope.String() + " " + truncate(q, 16), "esc clears"}}, keys...)
+		}
 		// Only offered when there's something to jump to — a key that does
 		// nothing on a healthy box is a key people learn to ignore.
 		if len(m.findings()) > 0 {
@@ -439,7 +450,13 @@ func (m model) renderFooter(w int) string {
 	}
 	line := strings.Join(kept, gap)
 	if m.editing {
-		line = stAccent.Render("filter: ") + safeText(m.filter) + stMuted.Render("█") + "   " + line
+		// The scope is a chip, not a word in a sentence: it is the thing you
+		// change with Tab, so it has to look like a control rather than like
+		// part of the label.
+		scope, q := m.filterQuery()
+		bar := stFilterChip.Render(" "+scope.String()+" ") +
+			stAccent.Render(" ") + stPlain.Render(safeText(q)) + stMuted.Render("█")
+		line = bar + "   " + line
 	}
 	return line
 }

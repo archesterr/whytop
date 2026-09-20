@@ -95,7 +95,10 @@ type model struct {
 	sortKey string
 	sortDir int
 	filter  string
-	editing bool
+	// filterScope is the column the filter searches when the query carries
+	// no prefix of its own — cycled with Tab while the filter is open.
+	filterScope filterScope
+	editing     bool
 	// showKernel reveals kernel threads in the process list. Off by default:
 	// see Proc.Kernel.
 	showKernel bool

@@ -45,6 +45,20 @@ func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		m.filter = ""
 		m.editing = false
+	case tea.KeyTab:
+		// Cycling the scope re-labels what is already typed rather than
+		// clearing it: you usually discover you wanted the port column
+		// *after* typing the number.
+		m.filterScope = (m.filterScope + 1) % numScopes
+		if scope, rest, ok := scopeFromPrefix(m.filter); ok {
+			_ = scope
+			m.filter = rest // a typed prefix would override the cycled scope
+		}
+	case tea.KeyShiftTab:
+		m.filterScope = (m.filterScope + numScopes - 1) % numScopes
+		if _, rest, ok := scopeFromPrefix(m.filter); ok {
+			m.filter = rest
+		}
 	case tea.KeyEnter:
 		m.editing = false
 	case tea.KeyBackspace:
