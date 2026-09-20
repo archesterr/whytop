@@ -92,7 +92,11 @@ func (m model) renderDetail(w, h int) string {
 	if w >= 110 {
 		nCol = 3
 	}
-	colW := (w - (nCol-1)*sepW) / nCol
+	// The separator is padded (" │ ") rather than bare: two facts butted up
+	// against a single line read as one run of text, which is the thing the
+	// columns exist to prevent.
+	factSep := " " + stBox2.Render(boxV) + " "
+	colW := (w - (nCol-1)*visLen(factSep)) / nCol
 	if colW < 24 {
 		colW, nCol = w, 1
 	}
@@ -106,7 +110,7 @@ func (m model) renderDetail(w, h int) string {
 			fact := stMuted.Render(pad2(facts[j][0], 11)) + " " + facts[j][1]
 			cells = append(cells, pad(truncateANSI(fact, colW), colW, false))
 		}
-		b.WriteString(joinColsWith(colSep, cells...) + "\n")
+		b.WriteString(joinColsWith(factSep, cells...) + "\n")
 	}
 	b.WriteString(stMuted.Render("Command  ") + truncate(safeText(cmdOf(p)), w-9) + "\n")
 
@@ -279,7 +283,7 @@ func (m model) renderOpenFiles(w, h int) string {
 		} else if f.Kind == "file" {
 			style = stPlain
 		}
-		lines = append(lines, joinColsSel(sel, gutterCell(sel),
+		lines = append(lines, joinColsSel(sel, gutterCell(sel, kinNone),
 			cell(f.FD, fdW, true, withBG(stFaint, sel)), cell(f.Kind, kindW, false, withBG(stFaint, sel)),
 			cell(f.Target, targetW, false, withBG(style, sel))))
 	}

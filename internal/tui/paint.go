@@ -20,22 +20,29 @@ import (
 // It builds the styled string itself rather than going through cell(),
 // because cell() paints one style over the whole value.
 func cmdCell(s string, w int, sel bool) string {
-	return cmdCellAt(s, 0, w, sel)
+	return cmdCellAt(s, treeRow{}, w, sel)
 }
 
-// cmdCellAt indents a row by its depth in the tree, with the guide that
-// makes a forest readable as one. The indent is part of the cell rather
-// than a separate column so it is cut with the text when the terminal is
-// narrow, instead of pushing the command out of sight.
-func cmdCellAt(s string, depth, w int, sel bool) string {
+// cmdCellAt prefixes a row with its branch guide, which is what makes a
+// forest readable as one. The guide is part of the cell rather than a
+// separate column so it is cut with the text when the terminal is narrow,
+// instead of pushing the command out of sight.
+func cmdCellAt(s string, t treeRow, w int, sel bool) string {
 	if w <= 0 {
 		return ""
 	}
 	s = safeText(s)
-	if depth > 0 {
-		indent := strings.Repeat("  ", min(depth, 12)) + "└ "
-		out := withBG(stFaint, sel).Render(indent)
-		rest := cmdCellAt(s, 0, max0(w-visLen(indent)), sel)
+	if t.guide != "" {
+		// A deep branch can be wider than the column it is drawn in. The
+		// guide is cut to fit rather than allowed to run past the cell:
+		// overflowing here doesn't wrap, it shifts every column to the
+		// right of COMMAND by however far the indent ran over.
+		guide := t.guide
+		if visLen(guide) > w {
+			guide = string([]rune(guide)[:w])
+		}
+		out := withBG(t.guideStyle(), sel).Render(guide)
+		rest := cmdCellAt(s, treeRow{}, max0(w-visLen(guide)), sel)
 		return pad(out+rest, w, sel)
 	}
 	if len([]rune(s)) > w {

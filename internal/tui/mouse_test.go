@@ -22,7 +22,11 @@ func TestClickAboveTheListDoesNothing(t *testing.T) {
 	}
 }
 
-func TestClickRowSelectsAndOpensProcess(t *testing.T) {
+// A click selects the row; clicking the row that is already selected opens
+// it. Opening on the first click made the tree view unusable with a mouse:
+// selecting a process is what marks out its descendants, and a panel thrown
+// over the list on that same click hides the thing you selected it to see.
+func TestClickRowSelectsThenOpens(t *testing.T) {
 	m := model{snap: testSnap(), sortKey: "pid", width: 100, height: 30}
 	// rows are sorted by pid ascending: 1 (init), 42 (nginx), 43 (worker)
 	got, cmd := m.handleClick(0, m.listFirstRow()+1) // second row -> PID 42
@@ -30,8 +34,17 @@ func TestClickRowSelectsAndOpensProcess(t *testing.T) {
 	if gm.sel != "42" {
 		t.Errorf("clicking row 1 selected %q, want \"42\"", gm.sel)
 	}
+	if gm.detail != nil {
+		t.Errorf("the first click on a row should only select it, got detail=%+v", gm.detail)
+	}
+	if cmd != nil {
+		t.Error("selecting a row should not kick off any command")
+	}
+
+	got, cmd = gm.handleClick(0, m.listFirstRow()+1) // the same row again
+	gm = got.(model)
 	if gm.detail == nil || gm.detail.pid != 42 {
-		t.Errorf("clicking a row should open its detail view, got detail=%+v", gm.detail)
+		t.Errorf("clicking the selected row should open its detail view, got detail=%+v", gm.detail)
 	}
 	if cmd == nil {
 		t.Error("opening a process detail should kick off loadExtra/loadJournal commands")

@@ -123,6 +123,15 @@ func (m *model) clickRow(idx int) (tea.Model, tea.Cmd) {
 	if target < start || target >= end {
 		return *m, nil
 	}
+	// A click selects; clicking the row that is already selected opens it.
+	// Opening on the first click is how the tree view became unusable with
+	// a mouse: selecting a process is what highlights its descendants, and
+	// if that same click throws a panel over the list you can never see the
+	// thing selecting it was for. It is also what every file manager does,
+	// and what Enter already does from the keyboard.
+	if m.sel == rows[target].key {
+		return m.openSelected()
+	}
 	m.sel = rows[target].key
-	return m.openSelected()
+	return *m, nil
 }

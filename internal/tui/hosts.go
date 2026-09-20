@@ -214,8 +214,6 @@ func (m *model) resetForHost() {
 func (m model) renderHosts(w, h int) string {
 	p := m.hosts
 	var b strings.Builder
-	b.WriteString(sectionBar(w, "HOSTS") + "\n")
-
 	for i, host := range p.hosts {
 		sel := i == p.sel
 		name := host.Label()
