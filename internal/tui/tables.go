@@ -149,18 +149,18 @@ func (m model) renderProcs(w, h int) string {
 		sel := i == selIdx
 		rowCells := []string{
 			gutterCell(sel),
-			cell(strconv.Itoa(int(p.PID)), 6, true, withBG(stPlain, sel)),
-			cell(p.User, 11, false, withBG(stMuted, sel)),
+			cell(strconv.Itoa(int(p.PID)), 6, true, withBG(stMuted, sel)),
+			userCell(p.User, 11, sel),
 			cell(p.State, 3, false, withBG(stateStyle(p.State), sel)),
 			cell(f1(p.CPU), 6, true, withBG(lvl(p.CPU, 50, 90), sel)),
-			cell(bytesFmt(float64(p.RSS)), 9, true, withBG(stPlain, sel)),
+			memCell(p.RSS, m.snap.Mem.Total, 9, sel),
 			ioCell(p.IOHidden, p.ReadBps, 9, sel),
 			ioCell(p.IOHidden, p.WriteBps, 9, sel),
 		}
 		if showUnit {
 			rowCells = append(rowCells, cell(unitName(p.Unit), unitW, false, withBG(stAccent, sel)))
 		}
-		rowCells = append(rowCells, cell(cmdOf(p), cmdW, false, withBG(stMuted, sel)))
+		rowCells = append(rowCells, cmdCell(cmdOf(p), cmdW, sel))
 		lines = append(lines, joinColsSel(sel, rowCells...))
 	}
 	if end < len(list) || start > 0 {
@@ -219,7 +219,7 @@ func (m model) renderPorts(w, h int) string {
 		proc, ok := m.procByPID(c.PID)
 		name := withBG(stFaint, sel).Render("hidden")
 		if ok {
-			name = withBG(stPlain.Bold(true), sel).Render(truncate(safeText(proc.Name), 16))
+			name = withBG(stCmd, sel).Render(truncate(safeText(proc.Name), 16))
 		}
 		addrStyle := stPlain
 		addr := c.LocalIP
@@ -453,10 +453,12 @@ func (m model) renderDiskProcs(w, h int) string {
 	header := tableHeader(w, hdrCell("PID", 6, stHdrCell), hdrCell("USER", 11, stHdrCell), hdrCell("ST", 3, stHdrCell),
 		hdrCell("MEM", 9, stHdrCell), hdrCell("READ", 9, stHdrCell), hdrCell("WRITE", 9, stHdrCell), hdrCell("COMMAND", cmdW, stHdrCell))
 	lines := capRows(procs, h-1, func(p collect.Proc) string {
-		return joinCols(cell(strconv.Itoa(int(p.PID)), 6, true, stPlain), cell(p.User, 11, false, stMuted),
-			cell(p.State, 3, false, stateStyle(p.State)), cell(bytesFmt(float64(p.RSS)), 9, true, stPlain),
+		// Painted exactly like the Processes tab's rows: the same data in two
+		// places should not need reading twice in two different ways.
+		return joinCols(cell(strconv.Itoa(int(p.PID)), 6, true, stMuted), userCell(p.User, 11, false),
+			cell(p.State, 3, false, stateStyle(p.State)), memCell(p.RSS, m.snap.Mem.Total, 9, false),
 			ioCell(p.IOHidden, p.ReadBps, 9, false), ioCell(p.IOHidden, p.WriteBps, 9, false),
-			cell(cmdOf(p), cmdW, false, stMuted))
+			cmdCell(cmdOf(p), cmdW, false))
 	})
 	return header + "\n" + strings.Join(lines, "\n")
 }

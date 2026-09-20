@@ -24,6 +24,20 @@ var (
 	colIO     = lipgloss.Color("#4fd1c5")
 	colLoad   = lipgloss.Color("#f28fb0")
 	colPSI    = lipgloss.Color("#f2a35c")
+
+	// Table-reading colours. Deliberately not htop's palette: htop paints
+	// by data type (every number green, every path cyan), which looks
+	// lively and tells you nothing. These are picked so that the thing you
+	// are hunting for in a wall of rows — the program's own name, a
+	// non-root owner, a process eating the box — is the thing that catches
+	// the eye first.
+	colCmd      = lipgloss.Color("#cfe0ff") // the program's own name
+	colCmdArgs  = lipgloss.Color("#7c8699") // its arguments, one step back
+	colUser     = lipgloss.Color("#6fc8bd") // an ordinary user
+	colUserRoot = lipgloss.Color("#e39ab4") // root
+	colMemMid   = lipgloss.Color("#b79ae0")
+	colMemHigh  = lipgloss.Color("#d8a0ff")
+	colGaugeBg  = lipgloss.Color("#39414f")
 )
 
 var (
@@ -57,6 +71,14 @@ var (
 	stToastOK   = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colOK).Padding(0, 1)
 	stToastErr  = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colCrit).Padding(0, 1)
 	stBox       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colLine).Padding(0, 1)
+
+	stCmd      = lipgloss.NewStyle().Foreground(colCmd).Bold(true)
+	stCmdArgs  = lipgloss.NewStyle().Foreground(colCmdArgs)
+	stUser     = lipgloss.NewStyle().Foreground(colUser)
+	stUserRoot = lipgloss.NewStyle().Foreground(colUserRoot)
+	stMemMid   = lipgloss.NewStyle().Foreground(colMemMid)
+	stMemHigh  = lipgloss.NewStyle().Foreground(colMemHigh).Bold(true)
+	stGaugeBg  = lipgloss.NewStyle().Foreground(colGaugeBg)
 )
 
 // colSep visibly separates table columns — a first-time user shouldn't have

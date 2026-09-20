@@ -8,32 +8,27 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// maxContentW caps how wide the UI is allowed to grow. Past roughly this
-// width a table stops looking spacious and starts looking broken: the slack
-// all lands in one column, so a full-screen terminal shows "eth0" in a
-// 66-character cell. Everything is drawn at this width and centred instead.
-const maxContentW = 132
-
-// contentW is the width everything is rendered at, and padLeft is the left
-// margin that centres it. Mouse hit-testing subtracts the same margin, so
-// the two can't disagree about where a column starts.
+// contentW is the width everything is rendered at: the whole terminal.
+//
+// This used to be capped at 132 columns and centred, on the reasoning that
+// past that width a table's slack all lands in one column. That reasoning
+// was right about the tables and wrong about the screen: on a wide terminal
+// the result is a window with dead margins down both sides while htop beside
+// it uses every column. The slack does land in one column — COMMAND — and
+// that is the correct place for it, because a truncated command line is the
+// single most common reason to want a wider terminal in the first place.
+//
+// padLeft survives as the hook mouse hit-testing subtracts, so a future
+// offset can be introduced in one place rather than in every click handler.
 func (m model) contentW() int {
 	w := m.width
 	if w <= 0 {
 		w = 100
 	}
-	if w > maxContentW {
-		return maxContentW
-	}
 	return w
 }
 
-func (m model) padLeft() int {
-	if m.width <= maxContentW {
-		return 0
-	}
-	return (m.width - maxContentW) / 2
-}
+func (m model) padLeft() int { return 0 }
 
 func (m model) View() string {
 	if m.quitting {
@@ -163,25 +158,32 @@ func (m model) renderVitals(w int) string {
 		ioSub = stCrit.Render(fmt.Sprintf("%d blocked on I/O", dstate))
 	}
 	psiVal, psiSub := "–", "unsupported"
-	psiStyle := stMuted
+	psiStyle, psiFrac := stMuted, 0.0
 	if s.PSI.Available {
 		worst := max3(s.PSI.CPUSome, s.PSI.MemSome, s.PSI.IOSome)
 		psiVal = f1(worst) + "%"
 		psiSub = fmt.Sprintf("cpu %s mem %s io %s", f1(s.PSI.CPUSome), f1(s.PSI.MemSome), f1(s.PSI.IOSome))
-		psiStyle = lvl(worst, 5, 20)
+		psiStyle, psiFrac = lvl(worst, 5, 20), worst/100
 	}
 
+	perCore := s.Load1 / float64(cores)
+	// Each card carries its own hue so the five read as five things rather
+	// than one striped block — and the gauge switches to warn/crit colours
+	// once the number is worth looking at, so the card that matters is the
+	// one that changes colour rather than just the one with a longer bar.
 	vitals := []struct {
 		label string
 		style lipgloss.Style
 		value string
 		sub   string
+		frac  float64
+		hue   lipgloss.Style
 	}{
-		{"CPU", lvl(c.Busy, 70, 90), f1(c.Busy) + "%", fmt.Sprintf("user %s sys %s", f1(c.User), f1(c.System))},
-		{"MEM", lvl(mem.UsedPct, 80, 92), f1(mem.UsedPct) + "%", fmt.Sprintf("%s / %s", bytesFmt(float64(mem.Used)), bytesFmt(float64(mem.Total)))},
-		{"I/O WAIT", lvl(c.Iowait, 3, 10), f1(c.Iowait) + "%", stripANSI(ioSub)},
-		{"LOAD", lvl(s.Load1/float64(cores), 0.7, 1), fmt.Sprintf("%.2f", s.Load1), fmt.Sprintf("%.2f per core", s.Load1/float64(cores))},
-		{"PSI", psiStyle, psiVal, psiSub},
+		{"CPU", lvl(c.Busy, 70, 90), f1(c.Busy) + "%", fmt.Sprintf("user %s sys %s", f1(c.User), f1(c.System)), c.Busy / 100, stAccent},
+		{"MEM", lvl(mem.UsedPct, 80, 92), f1(mem.UsedPct) + "%", fmt.Sprintf("%s / %s", bytesFmt(float64(mem.Used)), bytesFmt(float64(mem.Total))), mem.UsedPct / 100, lipgloss.NewStyle().Foreground(colMem)},
+		{"I/O WAIT", lvl(c.Iowait, 3, 10), f1(c.Iowait) + "%", stripANSI(ioSub), c.Iowait / 100, lipgloss.NewStyle().Foreground(colIO)},
+		{"LOAD", lvl(perCore, 0.7, 1), fmt.Sprintf("%.2f", s.Load1), fmt.Sprintf("%.2f per core", perCore), perCore, lipgloss.NewStyle().Foreground(colLoad)},
+		{"PSI", psiStyle, psiVal, psiSub, psiFrac, lipgloss.NewStyle().Foreground(colPSI)},
 	}
 	// No hard minimum here beyond what keeps labels legible: an 80-column
 	// terminal (the standard SSH default) only leaves room for colW=15, and
@@ -198,7 +200,28 @@ func (m model) renderVitals(w int) string {
 	// column after it.
 	var line1, line2 []string
 	for _, v := range vitals {
-		line1 = append(line1, pad(stHeader.Render(v.label), colW, false))
+		// The gauge shares the label's line rather than taking a third row:
+		// the vitals block is fixed at two lines everywhere else in the
+		// layout, and a screen of rows is worth more than a taller meter.
+		head := stHeader.Render(v.label)
+		// Capped, not "as wide as the cell": stretched across a 190-column
+		// terminal a meter becomes a 30-character rule that reads as a
+		// divider rather than as a measurement. Past about this width the
+		// extra cells add no precision you could see anyway.
+		barW := colW - len(v.label) - 2
+		if barW > 18 {
+			barW = 18
+		}
+		if barW >= 6 {
+			// A calm metric keeps its own hue; a worrying one takes the
+			// colour of the number above it.
+			fill := v.hue
+			if v.style.GetForeground() == colWarn || v.style.GetForeground() == colCrit {
+				fill = v.style
+			}
+			head += " " + gauge(v.frac, barW, fill)
+		}
+		line1 = append(line1, pad(head, colW, false))
 		budget := max0(colW - len(v.value) - 2)
 		line2 = append(line2, pad(v.style.Bold(true).Render(v.value)+"  "+stMuted.Render(truncate(v.sub, budget)), colW, false))
 	}
