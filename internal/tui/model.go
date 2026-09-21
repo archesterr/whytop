@@ -126,6 +126,10 @@ type model struct {
 	tree     bool
 	fullPath bool
 
+	// mouseOff means the operator has handed the mouse back to the terminal
+	// so they can select and copy text. See toggleMouse.
+	mouseOff bool
+
 	// lockOrder freezes the process list's row order. See lockRank.
 	lockOrder bool
 	// lockRank is the position every PID held when the order was locked, so
@@ -136,6 +140,9 @@ type model struct {
 
 	detail  *detailState
 	confirm *confirmState
+	// upd is a release worth offering, once the background check has found
+	// one. Nil the rest of the time, which is almost always.
+	upd *updateState
 
 	// remote is nil when viewing this machine. Everything else in the model
 	// is about whichever host is being viewed, which is why switching hosts
@@ -188,7 +195,7 @@ func Run(ctx context.Context, opt Options) error {
 }
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.collectCmd(0), m.pollOOMCmd(0)}
+	cmds := []tea.Cmd{m.collectCmd(0), m.pollOOMCmd(0), checkUpdateCmd(m.opt.Version, updateCheckDelay)}
 	if m.opt.Host != "" {
 		// -host connects in the background while the local screen fills in,
 		// so a slow or unreachable host shows an error over a working UI
@@ -363,6 +370,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		_, toast := m.showToast("Reading "+msg.host+" failed: "+msg.err.Error(), false)
 		return m, tea.Batch(toast, m.collectCmd(wait))
+
+	case updateFoundMsg:
+		// Only over the process list. A prompt that lands on top of a
+		// confirm, a filter being typed or an open detail panel interrupts
+		// work that was already underway, which is the one thing an
+		// unsolicited prompt must never do.
+		if m.confirm != nil || m.editing || m.detail != nil || m.hosts != nil || m.help {
+			// The same finding again in a minute, not another check. A
+			// fresh check would be refused by its own rate limit — it has
+			// just recorded that it ran — so re-checking here means the
+			// prompt is dropped for twelve hours every time the screen
+			// happened to be busy when it arrived.
+			return m, retryUpdatePromptCmd(msg, updateRetryDelay)
+		}
+		m.upd = &updateState{rel: msg.rel, install: msg.install}
+		return m, nil
+
+	case updateDoneMsg:
+		m.upd = nil
+		if msg.err != nil {
+			return m, tea.Batch(func() tea.Msg {
+				return actionMsg{ok: false, text: "Update failed: " + msg.err.Error()}
+			})
+		}
+		_, cmd := m.showToastFor("Updated to "+msg.tag+" — restart whytop to run it", true, oomToastTTL)
+		return m, cmd
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)

@@ -22,7 +22,16 @@ func main() {
 	host := flag.String("host", "", "open a remote host over SSH, as [user@]host[:port] (default: this machine)")
 	sshConfig := flag.String("ssh-config", "", "ssh config to read hosts from (default ~/.ssh/config)")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	noUpdate := flag.Bool("no-update-check", false, "never check whether a newer release exists (same as WHYTOP_NO_UPDATE_CHECK=1)")
 	flag.Parse()
+
+	// Set rather than passed through Options: the check runs inside a
+	// bubbletea command with no access to the flags, and an environment
+	// variable is what the collector already reads for this kind of switch.
+	// It also means the flag and the variable cannot disagree.
+	if *noUpdate {
+		os.Setenv("WHYTOP_NO_UPDATE_CHECK", "1")
+	}
 
 	if *showVersion {
 		fmt.Println("whytop", version)
