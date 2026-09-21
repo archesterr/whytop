@@ -219,6 +219,18 @@ Root is only needed for full visibility (other users' sockets, disk I/O, open fi
 sudo setcap cap_sys_ptrace,cap_dac_read_search,cap_sys_admin+ep ./whytop
 ```
 
+## Packaging
+
+Debian packaging lives in `debian/`: the package builds with `dh-golang` against Debian's own Go libraries, as a position-independent executable, reproducibly, with the update check removed at build time so the packaged binary makes no network connection at all. `docs/PACKAGING.md` is the route into the Debian archive, what hardening actually applies (and why CIS benchmarks do not certify a package), and the faster alternatives if the archive is too slow.
+
+```bash
+sudo mk-build-deps -i -t 'apt-get -y --no-install-recommends' debian/control
+dpkg-buildpackage -us -uc -b
+lintian --info --display-info --pedantic ../whytop_*.changes
+```
+
+All 23 Go modules whytop links are already packaged in Debian, so there is no dependency work to do first — which is the part that normally stops a Go program getting in.
+
 ## Build
 
 ```bash

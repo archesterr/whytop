@@ -1,0 +1,25 @@
+# The upstream Go test suite, run against the packaged libraries rather than
+# the module graph. autopkgtest-pkg-go generates this half; it is named here
+# so the smoke tests below sit beside it in one file.
+Tests: upstream-tests
+Depends: @builddeps@, @
+Restrictions: allow-stderr
+
+# What the build cannot check: that the thing dpkg installed runs.
+Tests: smoke
+Depends: whytop
+Restrictions: allow-stderr
+
+# The reason this package is allowed in the archive at all. If a packaged
+# whytop ever offers to replace its own binary, that is a policy violation
+# shipped to every user, and it is worth failing the package over rather
+# than finding out from a bug report.
+Tests: no-self-update
+Depends: whytop
+Restrictions: allow-stderr
+
+# Hardening. A Go binary built without -buildmode=pie silently loses ASLR,
+# and nothing else in the build would notice.
+Tests: hardening
+Depends: whytop, binutils, file
+Restrictions: allow-stderr

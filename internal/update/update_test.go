@@ -369,3 +369,36 @@ func TestPackageOwnerRecognisesARealPackagedFile(t *testing.T) {
 		t.Errorf("%s is owned by no package but was claimed as packaged", tmp)
 	}
 }
+
+// A distribution build must contain no path that reaches the network. The
+// runtime check in Detect already refuses to replace a packaged binary, but
+// a maintainer should not have to take a runtime check's word for it, and
+// debian/rules sets this at link time.
+func TestABuildCanHaveTheCheckCompiledOut(t *testing.T) {
+	for _, k := range []string{"WHYTOP_NO_UPDATE_CHECK", "NO_UPDATE_CHECK", "DO_NOT_TRACK"} {
+		t.Setenv(k, "")
+	}
+	if Disabled() {
+		t.Fatal("the check is off before anything turned it off")
+	}
+	old := BuiltWithoutUpdateCheck
+	t.Cleanup(func() { BuiltWithoutUpdateCheck = old })
+
+	BuiltWithoutUpdateCheck = "1"
+	if !Disabled() {
+		t.Error("a build with the check compiled out still checks")
+	}
+	// Spelled the way a linker flag might reasonably be given it.
+	for _, v := range []string{"yes", "true", "on"} {
+		BuiltWithoutUpdateCheck = v
+		if !Disabled() {
+			t.Errorf("BuiltWithoutUpdateCheck=%q did not disable the check", v)
+		}
+	}
+	for _, v := range []string{"", "0", "false", "False"} {
+		BuiltWithoutUpdateCheck = v
+		if Disabled() {
+			t.Errorf("BuiltWithoutUpdateCheck=%q disabled the check", v)
+		}
+	}
+}

@@ -1,0 +1,38 @@
+#!/bin/sh
+# A Go binary built without -buildmode=pie loses ASLR and nothing in an
+# ordinary build fails. This is the check that keeps debian/rules honest.
+set -eu
+
+bin=/usr/bin/whytop
+
+echo "--- file(1) says what kind of object this is"
+file -b "$bin"
+
+echo "--- position independent executable"
+if readelf -h "$bin" | grep -q 'Type:[[:space:]]*DYN'; then
+	echo "PIE: yes"
+else
+	echo "PIE: NO — debian/rules lost -buildmode=pie"
+	exit 1
+fi
+
+echo "--- not setuid or setgid"
+perms=$(stat -c %a "$bin")
+case "$perms" in
+	[0-7][0-7][0-7]) echo "mode $perms" ;;
+	*) echo "mode $perms has a set-user-ID or set-group-ID bit"; exit 1 ;;
+esac
+
+echo "--- no file capabilities shipped in the package"
+# whytop documents setcap as something the administrator may choose. A
+# package that ships capabilities grants them to everyone who installs it.
+if command -v getcap >/dev/null 2>&1; then
+	caps=$(getcap "$bin" || true)
+	test -z "$caps" || { echo "the package ships capabilities: $caps"; exit 1; }
+	echo "no capabilities set"
+fi
+
+echo "--- read-only relocations"
+readelf -d "$bin" | grep -q 'BIND_NOW' && echo "BIND_NOW: yes" || echo "BIND_NOW: no (Go static links; not applicable)"
+
+echo "PASS"

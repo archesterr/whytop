@@ -1,0 +1,53 @@
+#!/usr/bin/make -f
+
+# Built with dh-golang against the libraries in Build-Depends, not against a
+# vendor directory: Debian reviews and security-tracks each Go library as its
+# own source package, and a vendored copy would be outside that.
+export DH_GOLANG_IMPORT_PATH := github.com/archesterr/whytop
+
+# The upstream version, without the Debian revision, is what whytop reports
+# as its own. A -1 or -1ubuntu2 suffix is packaging, not upstream, and
+# internal/update parses it back off anyway — but reporting it plainly is
+# what a bug report needs.
+UPSTREAM_VERSION := $(shell dpkg-parsechangelog --show-field Version | sed -e 's/^[0-9]*://' -e 's/-[^-]*$$//')
+
+# BuiltWithoutUpdateCheck removes the update check from this binary entirely.
+# whytop already refuses at runtime to replace a binary dpkg owns, but a
+# package in the archive should contain no path that reaches the network at
+# all, and a maintainer should not have to take a runtime check's word for
+# it. apt is what updates this copy.
+export DH_GOLANG_BUILDPKG := github.com/archesterr/whytop/cmd/whytop
+GO_LDFLAGS := -X main.version=$(UPSTREAM_VERSION) \
+              -X github.com/archesterr/whytop/internal/update.BuiltWithoutUpdateCheck=1
+
+%:
+	dh $@ --builddirectory=_build --buildsystem=golang --with=golang
+
+override_dh_auto_build:
+	# -buildmode=pie so the binary is position independent, which is what
+	# the hardening checks and the CIS guidance on ASLR are actually asking
+	# for. dh_golang passes dpkg-buildflags through for the rest.
+	# -trimpath keeps the build reproducible: without it the binary records
+	# the build directory, which differs between the archive's builders and
+	# anyone checking the result matches.
+	DH_GOLANG_GO_GENERATE=0 dh_auto_build -- \
+		-buildmode=pie \
+		-trimpath \
+		-ldflags "$(GO_LDFLAGS)"
+
+override_dh_auto_test:
+	# The upstream test suite runs in the build, including the packaging
+	# invariants in internal/update: a copy dpkg owns must never offer to
+	# replace itself, and the archive name the updater asks for must match
+	# what upstream publishes.
+	dh_auto_test -- -short
+
+override_dh_auto_install:
+	dh_auto_install -- --no-source
+
+# The Go source is not shipped: whytop is a program, not a library anybody
+# builds against, so a -dev package carrying its packages would have no
+# reverse dependencies.
+override_dh_installsystemd:
+	# whytop is interactive and has no service to enable.
+	:

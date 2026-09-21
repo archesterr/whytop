@@ -1,0 +1,4 @@
+# The upstream tarball carries the module graph; Debian builds against the
+# packaged libraries in Build-Depends instead, so a vendor directory would be
+# both unused and a licence-review burden for the FTP team.
+extend-diff-ignore = "^vendor/"

@@ -26,6 +26,18 @@ type Release struct {
 // never offered to someone running a stable build.
 const latestURL = "https://api.github.com/repos/archesterr/whytop/releases/latest"
 
+// BuiltWithoutUpdateCheck is set at build time, through the linker, by
+// anyone shipping whytop through a channel that owns updates itself:
+//
+//	go build -ldflags "-X github.com/archesterr/whytop/internal/update.BuiltWithoutUpdateCheck=1"
+//
+// Detect() already refuses to replace a packaged binary at runtime, so this
+// is belt and braces — but it is the belt a distribution asks for. A package
+// in an archive should not contain code paths that reach the network at all,
+// and a maintainer should not have to take a runtime check's word for it.
+// debian/rules sets this.
+var BuiltWithoutUpdateCheck = ""
+
 // Disabled reports whether the operator has turned the update check off.
 // Two spellings, because the people who want this off are the people running
 // whytop on machines with no route to the internet, and they set it in
@@ -36,12 +48,19 @@ const latestURL = "https://api.github.com/repos/archesterr/whytop/releases/lates
 // machine that has declared it does not phone home should not have to
 // declare it again per program.
 func Disabled() bool {
+	if truthy(BuiltWithoutUpdateCheck) {
+		return true
+	}
 	for _, k := range []string{"WHYTOP_NO_UPDATE_CHECK", "NO_UPDATE_CHECK", "DO_NOT_TRACK"} {
-		if v := os.Getenv(k); v != "" && v != "0" && !strings.EqualFold(v, "false") {
+		if truthy(os.Getenv(k)) {
 			return true
 		}
 	}
 	return false
+}
+
+func truthy(v string) bool {
+	return v != "" && v != "0" && !strings.EqualFold(v, "false")
 }
 
 // Check asks GitHub for the current release. It is deliberately the only

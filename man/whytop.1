@@ -1,0 +1,235 @@
+.\" Manpage for whytop.
+.\" SPDX-License-Identifier: MIT
+.TH WHYTOP 1 "2026-09-21" "whytop" "System Administration Utilities"
+.SH NAME
+whytop \- live terminal UI for troubleshooting Linux servers
+.SH SYNOPSIS
+.B whytop
+.RI [ options ]
+.SH DESCRIPTION
+.B whytop
+is a process monitor for working out why a machine is behaving badly, rather
+than only what it is doing. Alongside the process table it shows per-core CPU,
+memory, swap, disk and network meters, and a verdict line naming the problems
+it can see: a full filesystem, a failed unit, a process the OOM killer
+recently killed, a mount that has stopped responding.
+.PP
+Opening a process shows its tree, its open files and sockets, the systemd unit
+that started it, and the tail of that unit's journal, refreshed live.
+.PP
+.B whytop
+watches Linux. It can read a remote Linux host over SSH with
+.BR \-host ,
+which works from any operating system, including when
+.B whytop
+itself cannot monitor the machine it is running on.
+.SH OPTIONS
+.TP
+.BI \-i " duration"
+Sampling interval. Values below 500ms are raised to 500ms. Default 2s.
+.TP
+.BI \-pid " n"
+Open the panel for this PID on startup.
+.TP
+.BI \-port " n"
+Open the panel for the process listening on this TCP port.
+.TP
+.BI \-host " [user@]host[:port]"
+Read a remote host over SSH instead of this machine. See
+.B REMOTE HOSTS
+below.
+.TP
+.BI \-ssh\-config " path"
+Read host definitions from this file instead of
+.IR ~/.ssh/config .
+.TP
+.B \-no\-update\-check
+Do not check whether a newer release exists. See
+.BR UPDATES .
+.TP
+.B \-version
+Print the version and exit.
+.SH KEYS
+The footer lists the keys that do something on the current screen;
+.B h
+shows the full map. Where
+.BR htop (1)
+and
+.BR top (1)
+have a key for something,
+.B whytop
+uses theirs.
+.TP
+.B Up Down PgUp PgDn Home End
+Move the cursor.
+.TP
+.B k
+Kill the selected process with SIGTERM, after a confirmation.
+.TP
+.B K
+Show or hide kernel threads.
+.TP
+.B P M T
+Sort by CPU, memory or time.
+.TP
+.B < >
+Previous or next sort column.
+.TP
+.B t
+Tree view. The selected process's own subtree is coloured, so it is clear
+which PIDs belong to it.
+.TP
+.B /
+Search. Tab changes which column it searches.
+.TP
+.B m
+Release the mouse back to the terminal, so text can be selected and copied
+normally. Press again to return it to
+.BR whytop .
+.TP
+.B @
+Open the hosts panel and watch another machine over SSH.
+.TP
+.B Enter
+Open the selected process's panel. In the panel,
+.B y
+copies the whole journal to the clipboard,
+.B f
+pauses or resumes the live journal,
+.B x
+and
+.B X
+stop or force kill,
+.B r
+restarts the unit, and
+.B e
+edits its unit file.
+.SH REMOTE HOSTS
+A remote host is read over an ordinary SSH session by reading
+.I /proc
+with shell commands.
+.B Nothing is installed or written on the remote host:
+no agent, no uploaded binary, no listening socket. The cost is that some
+figures are local\-only, because they cannot be read from raw
+.I /proc
+alone \(em per\-process network activity, container identity, unit
+attribution, open files and the journal.
+.PP
+Authentication is by SSH key or
+.BR ssh\-agent (1)
+only, with hosts read from
+.IR ~/.ssh/config .
+.B whytop
+never asks for or stores a password, and never stores anything secret.
+.SH UPDATES
+.B whytop
+checks at most once every twelve hours whether a newer release has been
+published, and asks before doing anything. It is the only network connection
+.B whytop
+makes.
+.PP
+.B A copy installed from a distribution package never replaces itself.
+It reports that a newer version exists and names the package manager command
+instead, because a package must not modify files outside the package manager's
+knowledge. Packages built for Debian have the check disabled entirely at build
+time; see
+.IR /usr/share/doc/whytop/README.Debian .
+.PP
+Setting
+.BR WHYTOP_NO_UPDATE_CHECK ,
+.B NO_UPDATE_CHECK
+or
+.B DO_NOT_TRACK
+in the environment disables the check, as does
+.BR \-no\-update\-check .
+.SH PRIVILEGES
+.B whytop
+runs usefully as an unprivileged user, but other users' sockets, disk I/O and
+open files are only visible to root. Rather than running it as root, the
+capabilities it actually needs can be granted to the binary:
+.PP
+.RS
+.nf
+setcap cap_sys_ptrace,cap_dac_read_search,cap_sys_admin+ep /usr/bin/whytop
+.fi
+.RE
+.PP
+Every privileged action \(em signals, unit restarts,
+.BR daemon\-reload ,
+emptying a file, closing a descriptor \(em is logged to syslog under
+.B AUTHPRIV
+naming the
+.B SUDO_USER
+responsible. Read\-only browsing is never logged.
+.SH ENVIRONMENT
+.TP
+.B WHYTOP_NO_UPDATE_CHECK
+Disable the update check when set to anything other than
+.I 0
+or
+.IR false .
+.TP
+.B NO_UPDATE_CHECK
+Honoured the same way.
+.TP
+.B DO_NOT_TRACK
+Honoured the same way.
+.TP
+.B SUDO_USER
+Recorded in the audit log for every privileged action.
+.SH FILES
+.TP
+.I ~/.config/whytop/update.json
+Records an update the operator declined or postponed. Absent until then.
+.TP
+.I ~/.ssh/config
+Read for host definitions by the hosts panel, unless
+.B \-ssh\-config
+names another file.
+.SH EXIT STATUS
+.TP
+.B 0
+Exited normally.
+.TP
+.B 1
+Could not start \(em for example, run on a non\-Linux system without
+.BR \-host ,
+or given a remote host that could not be reached.
+.SH EXAMPLES
+Watch this machine, sampling once a second:
+.PP
+.RS
+.nf
+whytop \-i 1s
+.fi
+.RE
+.PP
+Open whatever is listening on port 443:
+.PP
+.RS
+.nf
+whytop \-port 443
+.fi
+.RE
+.PP
+Watch a remote host, with no agent installed on it:
+.PP
+.RS
+.nf
+whytop \-host web\-07.example.net
+.fi
+.RE
+.SH SEE ALSO
+.BR htop (1),
+.BR top (1),
+.BR iotop (8),
+.BR journalctl (1),
+.BR systemctl (1),
+.BR ss (8),
+.BR ssh_config (5)
+.SH BUGS
+Report bugs at
+.UR https://github.com/archesterr/whytop/issues
+.UE .
+.SH AUTHOR
+Armin Hossein Pour.

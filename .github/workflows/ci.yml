@@ -34,6 +34,37 @@ jobs:
             exit 1
           fi
       - run: go vet ./...
+
+      # gofmt is not a style preference here: a Debian sponsor reads the
+      # source, and so does the FTP team on the NEW queue review.
+      - name: gofmt
+        run: |
+          set -eu
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::not gofmt-clean:"; echo "$unformatted"; exit 1
+          fi
+
+      # Known vulnerabilities in the module graph, checked against Go's own
+      # database. Debian tracks each Go library as its own source package
+      # with its own security history, so an advisory found here is one the
+      # security team would find later and file against the archive.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)"/bin/govulncheck ./...
+
+      # The manual page ships in the package, so a broken one is a bug in
+      # the package rather than in the repository.
+      - name: manual page renders without warnings
+        run: |
+          set -eu
+          sudo apt-get update -qq && sudo apt-get install -y -qq groff-base man-db
+          warnings=$(LC_ALL=C.UTF-8 groff -man -Tutf8 -ww -z man/whytop.1 2>&1 || true)
+          if [ -n "$warnings" ]; then
+            echo "::error::groff warnings in man/whytop.1:"; echo "$warnings"; exit 1
+          fi
+          echo "man/whytop.1 renders clean"
       - run: CGO_ENABLED=0 go build ./...
       - run: go test ./...
 

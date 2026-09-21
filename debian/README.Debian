@@ -1,0 +1,50 @@
+whytop for Debian
+=================
+
+Updates
+-------
+
+Upstream whytop checks GitHub for a newer release and offers to replace its
+own binary. This package does not: the check is removed at build time by
+debian/rules, which sets
+
+    -X github.com/archesterr/whytop/internal/update.BuiltWithoutUpdateCheck=1
+
+so the packaged binary makes no network connection of its own at all.
+
+apt owns updates for this copy. Upstream also detects a packaged binary at
+runtime and refuses to replace it, naming the apt command instead, but a
+package in the archive should not contain the code path at all — hence both.
+
+Privileges
+----------
+
+The package installs /usr/bin/whytop with no set-user-ID bit and no file
+capabilities. whytop is useful as an ordinary user; other users' sockets,
+disk I/O and open files are visible only with additional privilege.
+
+Granting that privilege is the administrator's decision, not the package's.
+Prefer capabilities over running the whole program as root:
+
+    setcap cap_sys_ptrace,cap_dac_read_search,cap_sys_admin+ep /usr/bin/whytop
+
+Note that cap_sys_admin is broad. On a machine where the extra visibility is
+not needed, run whytop unprivileged and accept that some columns read "needs
+root".
+
+Every privileged action whytop takes — signals, unit restarts,
+daemon-reload, emptying a file, closing a descriptor — is logged to syslog
+under AUTHPRIV, naming the SUDO_USER responsible. Read-only browsing is not
+logged.
+
+Optional dependencies
+---------------------
+
+ * systemd (Recommends) — unit attribution, unit status and the journal
+   panel. whytop runs without it; those panels say so instead.
+ * iproute2 (Suggests) — the per-process network columns use ss(8).
+ * gdb (Suggests) — only for the "close a descriptor" action, which has no
+   syscall and is implemented by attaching to the target. Every other
+   action works without gdb.
+
+ -- Armin Hossein Pour <arminney77@gmail.com>, Mon, 21 Sep 2026 09:00:00 +0000
