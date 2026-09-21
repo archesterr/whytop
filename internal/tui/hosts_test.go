@@ -159,3 +159,25 @@ func TestFailedConnectionIsVisible(t *testing.T) {
 type errTest struct{ s string }
 
 func (e errTest) Error() string { return e.s }
+
+// The hosts panel's one input line does two jobs, told apart by a leading
+// "@": a host to connect to, or the ssh config to read hosts from. The
+// body already labels which; the footer used to say "enter connect" for
+// both, so pressing c to change the config path was answered by a footer
+// promising to open an SSH connection to a file.
+func TestTheHostInputFooterSaysWhatEnterWillDo(t *testing.T) {
+	m := model{snap: testSnap(), width: 140, height: 40,
+		hosts: &hostPanel{adding: true, input: "db-01.example.com"}}
+	if foot := stripANSI(m.renderFooter(200)); !strings.Contains(foot, "connect") {
+		t.Errorf("adding a host does not offer to connect: %s", foot)
+	}
+
+	m.hosts = &hostPanel{adding: true, input: "@/etc/ssh/ssh_config"}
+	foot := stripANSI(m.renderFooter(200))
+	if !strings.Contains(foot, "use this config") {
+		t.Errorf("changing the ssh config does not say so: %s", foot)
+	}
+	if strings.Contains(foot, "connect") {
+		t.Errorf("changing the ssh config still offers to connect to it: %s", foot)
+	}
+}

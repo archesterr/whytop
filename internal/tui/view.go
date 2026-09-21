@@ -249,13 +249,31 @@ func (m model) renderFooter(w int) string {
 		keys = [][2]string{{"tab", "scope: " + scope.hint()}, {"enter", "apply"}, {"esc", "clear"}}
 	case m.hosts != nil:
 		if m.hosts.adding {
-			keys = [][2]string{{"enter", "connect"}, {"esc", "cancel"}}
+			// One input line does two jobs, told apart by a leading "@":
+			// a host to connect to, or the ssh config to read hosts from.
+			// The body labels which; the footer has to agree, or enter
+			// promises to connect to a file path.
+			action := "connect"
+			if strings.HasPrefix(m.hosts.input, "@") {
+				action = "use this config"
+			}
+			keys = [][2]string{{"enter", action}, {"esc", "cancel"}}
 			break
 		}
 		keys = [][2]string{{"↑↓", "select"}, {"enter", "connect"}, {"a", "add host"},
 			{"c", "ssh config"}, {"r", "reload"}, {"esc", "close"}}
 
 	case m.detail != nil:
+		// A process that has exited keeps its panel open — you asked to see
+		// it, and being thrown back to the list the instant it died would
+		// take the answer away with it. But none of the actions can do
+		// anything to a PID that is gone, and they silently no-op: the same
+		// rule as the remote host below applies, so the footer stops
+		// offering them and says what happened instead.
+		if _, alive := m.procByPID(m.detail.pid); !alive {
+			keys = [][2]string{{"", "this process has exited"}, {"esc", "close"}}
+			break
+		}
 		// The panel has two lists; the hints name whichever one has the
 		// cursor, so the keys on offer are the ones that will actually fire.
 		if m.detail.focus == focusFiles && m.remote == nil {
