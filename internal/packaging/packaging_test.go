@@ -20,9 +20,10 @@ import (
 
 // debianName maps a Go module path to the source package Debian gives it, by
 // the Go Packaging Policy's naming rules: the host with dots replaced by
-// dashes, then the path, then -dev. github.com is shortened to github, and
-// golang.org/x is golang-golang-org-x. A major-version suffix is part of the
-// module path but not of the package name.
+// dashes, then the path, then -dev. Two hosts are special: github.com is
+// shortened to github, and golang.org drops its "org" — golang.org/x/crypto
+// is golang-golang-x-crypto-dev. A major-version suffix is part of the module
+// path but not of the package name.
 func debianName(mod string) string {
 	p := strings.TrimSuffix(mod, "/")
 	for _, v := range []string{"/v2", "/v3", "/v4", "/v5", "/v6"} {
@@ -30,8 +31,18 @@ func debianName(mod string) string {
 	}
 	parts := strings.Split(p, "/")
 	host := strings.ReplaceAll(parts[0], ".", "-")
-	if host == "github-com" {
+	switch host {
+	case "github-com":
 		host = "github"
+	case "golang-org":
+		// golang.org/x/crypto is golang-golang-x-crypto-dev in Debian, not
+		// golang-golang-org-x-crypto-dev. The "org" is dropped. Getting
+		// this wrong does not fail loudly: it names a package that does not
+		// exist, apt says it cannot satisfy the build dependency, and the
+		// obvious reading is that Debian has not packaged x/crypto — which
+		// it has, and has for years. Caught by the workflow that asks apt
+		// what the suite actually has.
+		host = "golang"
 	}
 	rest := strings.Join(parts[1:], "-")
 	return strings.ToLower("golang-" + host + "-" + rest + "-dev")
@@ -43,8 +54,11 @@ func TestDebianNaming(t *testing.T) {
 		"github.com/shirou/gopsutil/v4":       "golang-github-shirou-gopsutil-dev",
 		"github.com/charmbracelet/x/cellbuf":  "golang-github-charmbracelet-x-cellbuf-dev",
 		"github.com/aymanbagabas/go-osc52/v2": "golang-github-aymanbagabas-go-osc52-dev",
-		"golang.org/x/crypto":                 "golang-golang-org-x-crypto-dev",
-		"golang.org/x/sys":                    "golang-golang-org-x-sys-dev",
+		// The "org" is dropped for golang.org/x/*, which is not a rule you
+		// would guess — these are the two that were wrong in debian/control.
+		"golang.org/x/crypto": "golang-golang-x-crypto-dev",
+		"golang.org/x/sys":    "golang-golang-x-sys-dev",
+		"golang.org/x/text":   "golang-golang-x-text-dev",
 	}
 	for mod, want := range cases {
 		if got := debianName(mod); got != want {
