@@ -116,8 +116,12 @@ type model struct {
 	// top is the first visible row of the process list. It is a position
 	// the operator moved to, not a function of the selection, so that a
 	// list being read holds still while the cursor moves through it.
-	top        int
-	findingSel int // which status-line finding g jumps to next
+	top int
+	// findingLast is the key of the finding g last jumped to, so the next
+	// press lands on the one after it. A key rather than an index, because
+	// the findings list is rebuilt from a fresh sample every press — see
+	// jumpToFinding.
+	findingLast string
 
 	// help shows the key map. tree orders the list as a forest, the way
 	// htop's t does. fullPath is htop's p: the whole path, or just the

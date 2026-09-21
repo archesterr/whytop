@@ -209,7 +209,7 @@ func (m *model) resetForHost() {
 	m.detail = nil
 	m.confirm = nil
 	m.lockRank = nil
-	m.findingSel = 0
+	m.findingLast = ""
 }
 
 func (m model) renderHosts(w, h int) string {

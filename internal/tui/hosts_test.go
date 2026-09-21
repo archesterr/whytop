@@ -51,11 +51,11 @@ func TestRemoteFooterOffersNoLocalActions(t *testing.T) {
 // different box.
 func TestSwitchingHostsClearsPerHostState(t *testing.T) {
 	m := model{snap: portSnap(), sel: "42", lockOrder: true,
-		lockRank: map[int32]int{42: 0}, detail: &detailState{pid: 42}, findingSel: 3}
+		lockRank: map[int32]int{42: 0}, detail: &detailState{pid: 42}, findingLast: "cpu"}
 	m.resetForHost()
-	if m.sel != "" || m.detail != nil || m.lockRank != nil || m.findingSel != 0 {
-		t.Errorf("state survived a host switch: sel=%q detail=%v lockRank=%v findingSel=%d",
-			m.sel, m.detail, m.lockRank, m.findingSel)
+	if m.sel != "" || m.detail != nil || m.lockRank != nil || m.findingLast != "" {
+		t.Errorf("state survived a host switch: sel=%q detail=%v lockRank=%v findingLast=%q",
+			m.sel, m.detail, m.lockRank, m.findingLast)
 	}
 }
 
