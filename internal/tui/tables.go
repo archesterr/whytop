@@ -53,12 +53,11 @@ func gutterCell(selected bool, kin kinship) string {
 	return cell("", gutterW, false, stPlain)
 }
 
-// windowRows picks the [start,end) slice of a `total`-row list to actually
-// draw so the row at selIdx stays inside a `budget`-row viewport. Without
-// this, every table always drew rows [0,budget) regardless of selection —
-// arrowing down past the bottom of the visible rows moved the selection
-// state correctly but there was nothing left on screen still highlighted,
-// so the cursor appeared to just vanish.
+// windowRows picks the [start,end) slice of a `total`-row list to draw so
+// the row at selIdx stays inside a `budget`-row viewport, for the small
+// lists inside the process panel, which have no scroll position of their
+// own to remember. The list starts at its first row and only moves once the
+// cursor would leave the viewport.
 func windowRows(total, selIdx, budget int) (start, end int) {
 	if budget < 1 {
 		budget = 1
@@ -70,13 +69,62 @@ func windowRows(total, selIdx, budget int) (start, end int) {
 	if dataRows < 1 {
 		dataRows = 1
 	}
-	start = selIdx - dataRows/2
-	if start < 0 {
-		start = 0
+	start = clampTop(0, selIdx, total, dataRows)
+	end = start + dataRows
+	if end > total {
+		end = total
 	}
-	if max := total - dataRows; start > max {
-		start = max
+	return start, end
+}
+
+// clampTop moves a scroll position the least it can to keep the selected row
+// on screen — down when the cursor walks off the bottom, up when it walks off
+// the top, and not at all otherwise.
+//
+// The list used to centre the selection instead, which meant the first thing
+// you saw on opening whytop was the middle of the process list with a third
+// of it scrolled off above, and every press of an arrow key shifted every row
+// on screen. A list you are reading should hold still; what moves is the
+// cursor, until it reaches an edge.
+func clampTop(top, selIdx, total, dataRows int) int {
+	if dataRows < 1 {
+		dataRows = 1
 	}
+	if max := total - dataRows; top > max {
+		top = max
+	}
+	if top < 0 {
+		top = 0
+	}
+	if selIdx < 0 {
+		return top
+	}
+	if selIdx < top {
+		return selIdx
+	}
+	if selIdx >= top+dataRows {
+		return max0(selIdx - dataRows + 1)
+	}
+	return top
+}
+
+// window is the process list's own viewport, which — unlike the panels'
+// lists — remembers where it is scrolled to. Without that memory the only
+// scroll positions expressible are "the top" and "the selection glued to
+// the bottom edge", and walking back up a long list drags every row with
+// the cursor instead of letting it climb the screen.
+func (m model) window(total, selIdx, budget int) (start, end int) {
+	if budget < 1 {
+		budget = 1
+	}
+	if total <= budget {
+		return 0, total
+	}
+	dataRows := budget - 1
+	if dataRows < 1 {
+		dataRows = 1
+	}
+	start = clampTop(m.top, selIdx, total, dataRows)
 	end = start + dataRows
 	if end > total {
 		end = total
@@ -140,7 +188,7 @@ func (m model) renderProcs(w, h int) string {
 		tr = treeRows(list, selIdx)
 	}
 
-	start, end := windowRows(len(list), selIdx, h-1)
+	start, end := m.window(len(list), selIdx, h-1)
 	for i := start; i < end; i++ {
 		p := list[i]
 		sel := i == selIdx

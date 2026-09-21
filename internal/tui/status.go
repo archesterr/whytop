@@ -276,6 +276,7 @@ func (m *model) applyJump(f finding) (tea.Model, tea.Cmd) {
 	m.detail = nil
 	m.editing = false
 	m.filter = t.filter
+	m.resetScroll()
 	// A filter for blocked processes is useless if the kernel threads
 	// they're waiting behind are hidden — D state is exactly where a
 	// kernel thread is worth seeing.

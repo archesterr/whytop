@@ -113,7 +113,11 @@ type model struct {
 	// see Proc.Kernel.
 	showKernel bool
 	sel        string // selected row key
-	findingSel int    // which status-line finding g jumps to next
+	// top is the first visible row of the process list. It is a position
+	// the operator moved to, not a function of the selection, so that a
+	// list being read holds still while the cursor moves through it.
+	top        int
+	findingSel int // which status-line finding g jumps to next
 
 	// help shows the key map. tree orders the list as a forest, the way
 	// htop's t does. fullPath is htop's p: the whole path, or just the
@@ -244,7 +248,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		return m, nil
+		// Every frame is laid out to the exact width and height, so a
+		// resize invalidates all of it. bubbletea's renderer only repaints
+		// the lines it believes have changed, and on a window that just got
+		// smaller the lines it leaves alone are the ones that were too wide
+		// for it — they stay on screen, wrapped, under the new frame. A
+		// clear forces the next frame to be painted from nothing.
+		m.top = 0
+		return m, tea.ClearScreen
 
 	case snapMsg:
 		m.snap = msg
@@ -405,6 +416,7 @@ func (m *model) resolveDeepLink() tea.Cmd {
 			}
 		}
 		m.filter = "port:" + strconv.Itoa(port)
+		m.resetScroll()
 		_, cmd := m.showToast(fmt.Sprintf("Nothing visible is listening on port %d", port), false)
 		return cmd
 	}
