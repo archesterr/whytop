@@ -17,11 +17,12 @@ disagree, Policy is right.
 Two things have to change in Debian before whytop can be built there at all,
 and neither is in this repository:
 
-1. **Some of the Go libraries it links are not in Debian yet.** The `debian`
-   workflow runs `dpkg-checkbuilddeps` against `debian:trixie` on every push
-   and names the unmet ones in its job summary — that list is the real state
-   of this, and it is worth reading before anything else here. Each one is a
-   separate ITP by somebody, usually the Go team.
+1. **Some of the Go libraries it links are not in Debian yet.** How many is
+   not a thing to state from memory: the `debian` workflow asks apt, on
+   every push, against a real `debian:trixie`, and names the missing ones in
+   its job summary. **Read that summary rather than this paragraph** — it is
+   the only current answer, and each package it names needs its own ITP by
+   somebody, usually the Go team.
 2. **It needs Go 1.26.** `golang.org/x/crypto` v0.56.0 requires it, and that
    version is where the SSH client vulnerabilities this program would
    otherwise ship with are fixed. trixie has 1.24. `Build-Depends` says
@@ -32,9 +33,10 @@ already working on those libraries, and unstable moves faster than stable.
 But the honest estimate is *after* those land, not now.
 
 An earlier version of this document said all 23 modules were already
-packaged. That was wrong, and CI is what caught it: the check exists
-precisely because a claim like that is cheap to make and expensive to
-believe.
+packaged and there was no dependency work. That was asserted without
+checking against a real suite, and the first time one ran, the build
+dependencies could not be satisfied. The check exists because a claim like
+that is cheap to make, expensive to believe, and easy to have apt settle.
 
 What is left after that is the ordinary path: file an ITP, get the packaging
 reviewed, find a Debian Developer to sponsor the upload, and wait out the

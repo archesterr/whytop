@@ -1,5 +1,22 @@
 module github.com/archesterr/whytop
 
+// Go 1.26 is required by golang.org/x/crypto v0.56.0, and that version is
+// not optional: it is where the last of eight advisories in the SSH client
+// are fixed, all of them reachable from every connection whytop makes.
+//
+// An earlier commit pinned x/crypto to v0.44.0 for the opposite reason —
+// "nothing in the SSH client needs a newer language, and making people
+// building from source install a brand-new toolchain to run a monitoring
+// tool is a real cost for no benefit". That was right when it was written.
+// It stopped being right when the advisories landed, and it is the reason
+// this looks like drift that wants reverting. It is not: dropping back to
+// v0.44.0 reinstates an auth bypass on @revoked known_hosts entries and a
+// FIDO/U2F presence check that can be skipped. v0.55.0 is the last release
+// on Go 1.25 and still carries two of the eight.
+//
+// The cost is real and is being paid deliberately: Debian trixie ships Go
+// 1.24, so this is also one of the two things blocking the archive route.
+// See docs/PACKAGING.md.
 go 1.26.0
 
 toolchain go1.26.8

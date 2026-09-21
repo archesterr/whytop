@@ -31,15 +31,40 @@ jobs:
           # mk-build-deps fails with "Unable to install all build-dep
           # packages" and nothing else: not which package, not why. For a Go
           # program whose libraries are mostly newer than any Debian
-          # release, that one line is the entire question — so it is asked
-          # first, with the tool whose whole job is answering it.
-          if dpkg-checkbuilddeps debian/control 2>/tmp/unmet; then
+          # release, that one line is the entire question.
+          #
+          # Not dpkg-checkbuilddeps: it reports what is not INSTALLED, and
+          # nothing is installed yet at this point, so it calls every single
+          # Build-Depends missing whether the archive has it or not. The
+          # question here is what the archive HAS, which is apt's to answer.
+          deps=$(awk '
+            /^Build-Depends:/            { inb = 1; sub(/^Build-Depends:/, "") }
+            inb && /^[A-Za-z0-9-]+:/ && !/^Build-Depends:/ { inb = 0 }
+            inb                          { print }
+          ' debian/control \
+            | sed -e 's/([^)]*)//g' -e 's/[|,]/ /g' \
+            | tr -s ' \t' '\n' | grep -v '^$' | sort -u)
+
+          missing=""
+          for d in $deps; do
+            # --simulate resolves virtual packages and Provides the way the
+            # real install would; apt-cache policy does not.
+            if apt-get install --simulate --no-install-recommends "$d" >/dev/null 2>&1; then
+              printf '  have     %s\n' "$d"
+            else
+              printf '  MISSING  %s\n' "$d"
+              missing="$missing $d"
+            fi
+          done
+
+          goversion=$(apt-cache policy golang-go 2>/dev/null | awk '/Candidate:/{print $2}')
+          printf '\n  this suite ships golang-go %s; whytop needs 1.26\n' "${goversion:-none}"
+
+          if [ -z "$missing" ]; then
             echo "buildable=yes" >> "$GITHUB_OUTPUT"
             echo "Every Build-Depends exists in this suite."
             exit 0
           fi
-          cat /tmp/unmet
-          unmet=$(sed -e 's/.*Unmet build dependencies: //' /tmp/unmet)
           echo "buildable=no" >> "$GITHUB_OUTPUT"
           # Not a failure. Debian not having packaged a Go library yet is a
           # fact about the archive, not about this commit, and a check that
@@ -48,21 +73,17 @@ jobs:
           # where it will be seen and the packaging is left alone; anything
           # this repository can actually break still fails below.
           {
-            echo "### whytop is not packageable on Debian trixie yet"
+            echo "### Not packageable on Debian trixie yet"
             echo
-            echo "\`dpkg-checkbuilddeps\` could not satisfy:"
+            echo "These \`Build-Depends\` do not exist in the suite at all:"
             echo
-            # Version constraints and alternatives come through as their
-            # own words — "golang-any (>= 2:1.26~)" would otherwise be
-            # listed as three packages, two of them punctuation.
-            printf '%s\n' "$unmet" | sed -e 's/([^)]*)//g' -e 's/|/ /g' \
-              | tr -s ' ' '\n' | grep -v '^$' | sort -u | sed 's/^/- `/; s/$/`/' 
+            for d in $missing; do echo "- \`$d\`"; done
             echo
-            echo "Each \`golang-*-dev\` above is a Go library that has to exist in"
-            echo "Debian before whytop can be built there — that is the ITP's real"
-            echo "blocker. See \`docs/PACKAGING.md\`."
+            echo "Each one is a Go library that needs its own ITP before whytop"
+            echo "can be built in Debian. The suite ships \`golang-go\`"
+            echo "\`${goversion:-none}\`; whytop needs 1.26. See \`docs/PACKAGING.md\`."
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "::warning::Not packageable on Debian trixie yet — unmet: ${unmet}"
+          echo "::warning::Not in this suite:${missing}"
 
       - name: Build dependencies
         if: steps.deps.outputs.buildable == 'yes'
