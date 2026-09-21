@@ -31,7 +31,7 @@ var helpOwn = []helpEntry{
 	{"@", "hosts — watch another box over SSH"},
 	{"L", "lock the row order"},
 	{"Space", "pause / resume sampling"},
-	{"m", "release the mouse so you can select and copy text"},
+	{"m  right-click", "hand the mouse to the terminal so you can select and copy"},
 	{"Tab", "in the filter: change what it searches"},
 	{"Esc", "clear the filter, or close a panel"},
 }
@@ -42,7 +42,6 @@ var helpPanel = []helpEntry{
 	{"r", "restart the unit"},
 	{"e", "edit the unit file"},
 	{"j  f", "reload / follow the journal"},
-	{"y", "copy the whole journal to the clipboard"},
 	{"t  c", "empty a file / close a descriptor"},
 }
 

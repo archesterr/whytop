@@ -1,0 +1,120 @@
+name: debian
+
+# The packaging is built and checked on every pull request, not only when
+# someone remembers. A debian/ directory that has drifted from the source it
+# packages is worse than none: it fails in a sponsor's build, after they have
+# already spent their time on it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - name: Install the packaging toolchain
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential devscripts dh-golang golang-any lintian \
+            ca-certificates git file binutils
+
+      - uses: actions/checkout@v4
+
+      - name: Which build dependencies does this suite actually have
+        id: deps
+        run: |
+          set -eu
+          # mk-build-deps fails with "Unable to install all build-dep
+          # packages" and nothing else: not which package, not why. For a Go
+          # program whose libraries are mostly newer than any Debian
+          # release, that one line is the entire question.
+          #
+          # Not dpkg-checkbuilddeps: it reports what is not INSTALLED, and
+          # nothing is installed yet at this point, so it calls every single
+          # Build-Depends missing whether the archive has it or not. The
+          # question here is what the archive HAS, which is apt's to answer.
+          deps=$(awk '
+            /^Build-Depends:/            { inb = 1; sub(/^Build-Depends:/, "") }
+            inb && /^[A-Za-z0-9-]+:/ && !/^Build-Depends:/ { inb = 0 }
+            inb                          { print }
+          ' debian/control \
+            | sed -e 's/([^)]*)//g' -e 's/[|,]/ /g' \
+            | tr -s ' \t' '\n' | grep -v '^$' | sort -u)
+
+          missing=""
+          for d in $deps; do
+            # --simulate resolves virtual packages and Provides the way the
+            # real install would; apt-cache policy does not.
+            if apt-get install --simulate --no-install-recommends "$d" >/dev/null 2>&1; then
+              printf '  have     %s\n' "$d"
+            else
+              printf '  MISSING  %s\n' "$d"
+              missing="$missing $d"
+            fi
+          done
+
+          goversion=$(apt-cache policy golang-go 2>/dev/null | awk '/Candidate:/{print $2}')
+          printf '\n  this suite ships golang-go %s; whytop needs 1.26\n' "${goversion:-none}"
+
+          if [ -z "$missing" ]; then
+            echo "buildable=yes" >> "$GITHUB_OUTPUT"
+            echo "Every Build-Depends exists in this suite."
+            exit 0
+          fi
+          echo "buildable=no" >> "$GITHUB_OUTPUT"
+          # Not a failure. Debian not having packaged a Go library yet is a
+          # fact about the archive, not about this commit, and a check that
+          # is red on every pull request for a reason nobody can act on in
+          # that pull request is a check people stop reading. It is reported
+          # where it will be seen and the packaging is left alone; anything
+          # this repository can actually break still fails below.
+          {
+            echo "### Not packageable on Debian trixie yet"
+            echo
+            echo "These \`Build-Depends\` do not exist in the suite at all:"
+            echo
+            for d in $missing; do echo "- \`$d\`"; done
+            echo
+            echo "Each one is a Go library that needs its own ITP before whytop"
+            echo "can be built in Debian. The suite ships \`golang-go\`"
+            echo "\`${goversion:-none}\`; whytop needs 1.26. See \`docs/PACKAGING.md\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::Not in this suite:${missing}"
+
+      - name: Build dependencies
+        if: steps.deps.outputs.buildable == 'yes'
+        run: |
+          set -eux
+          mk-build-deps -i -t "apt-get -y --no-install-recommends" debian/control
+
+      - name: Build the package
+        if: steps.deps.outputs.buildable == 'yes'
+        run: |
+          set -eux
+          # No signing, and no network: an archive build has neither.
+          dpkg-buildpackage -us -uc -b
+
+      - name: Lintian
+        if: steps.deps.outputs.buildable == 'yes'
+        run: |
+          set -eux
+          lintian --info --display-info --pedantic --fail-on warning,error ../whytop_*.changes
+
+      - name: The installed package behaves
+        if: steps.deps.outputs.buildable == 'yes'
+        run: |
+          set -eux
+          apt-get install -y ../whytop_*.deb
+          whytop -version
+          test -f /usr/share/man/man1/whytop.1.gz
+          # The checks debian/tests/hardening runs under autopkgtest, run
+          # here too so a pull request that loses PIE fails on the pull
+          # request rather than in a sponsor's pipeline.
+          readelf -h /usr/bin/whytop | grep -q 'Type:[[:space:]]*DYN'
+          sh debian/tests/hardening
+          sh debian/tests/no-self-update
+          sh debian/tests/smoke

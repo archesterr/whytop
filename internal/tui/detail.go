@@ -397,10 +397,21 @@ func (d *detailState) moveDetailSel(delta, tree, files int) {
 
 func doTruncateFD(pid int32, fd, target string) tea.Cmd {
 	return func() tea.Msg {
+		// Asked before the truncate, because afterwards the descriptor
+		// may already be gone.
+		appends := actions.FDAppends(pid, fd)
 		if err := actions.TruncateFD(pid, fd, target); err != nil {
 			return actionMsg{ok: false, text: err.Error()}
 		}
-		return actionMsg{ok: true, text: fmt.Sprintf("Emptied fd %s of PID %d — space reclaimed, process untouched", fd, pid)}
+		note := ""
+		if !appends {
+			// See actions.FDAppends: the space is back, but this writer
+			// resumes at the offset it held and leaves a hole behind it,
+			// so the next person to run ls sees the old size and concludes
+			// nothing happened.
+			note = " (the writer does not append, so the file goes sparse: df and du show the space back, ls -l will still show the old size)"
+		}
+		return actionMsg{ok: true, text: fmt.Sprintf("Emptied fd %s of PID %d — space reclaimed, process untouched%s", fd, pid, note)}
 	}
 }
 

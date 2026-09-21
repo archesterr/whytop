@@ -16,6 +16,10 @@ import (
 // Knowing that 0.7 load across 4 cores is fine but 20% I/O pressure is an
 // emergency is exactly the experience a first-time user doesn't have yet.
 type finding struct {
+	// key is what the finding is about — "cpu", "fs-full:/var" — fixed for
+	// as long as the condition holds, while text carries the live numbers
+	// and changes on every sample. g steps by key; see jumpToFinding.
+	key  string
 	crit bool
 	text string
 	// to is where this finding lives. A line that tells you a process is
@@ -54,8 +58,13 @@ func (m model) findings() []finding {
 	var out []finding
 	// Device and mount names reach this line straight from the system, so
 	// the finished sentence is scrubbed like any other untrusted text.
-	add := func(crit bool, to jump, format string, args ...any) {
-		out = append(out, finding{crit: crit, to: to, text: safeText(fmt.Sprintf(format, args...))})
+	//
+	// key identifies what a finding is *about*, independent of the numbers
+	// in its text: g steps through findings by that identity, and the text
+	// changes on every sample — "CPU saturated (100.0%)" is "(99.4%)" a
+	// second later — so the text cannot serve as one.
+	add := func(key string, crit bool, to jump, format string, args ...any) {
+		out = append(out, finding{key: key, crit: crit, to: to, text: safeText(fmt.Sprintf(format, args...))})
 	}
 	// The destinations. Blocked and zombie processes filter the list down to
 	// exactly those, which is what makes the answer readable when there are
@@ -87,33 +96,33 @@ func (m model) findings() []finding {
 		}
 	}
 	if blocked > 0 {
-		add(blocked >= 3, toBlocked, "%d %s stuck waiting on disk", blocked, plural(blocked, "process", "processes"))
+		add("blocked", blocked >= 3, toBlocked, "%d %s stuck waiting on disk", blocked, plural(blocked, "process", "processes"))
 	}
 	if zombies >= 10 {
-		add(false, toZombies, "%d zombie processes", zombies)
+		add("zombies", false, toZombies, "%d zombie processes", zombies)
 	}
 
 	if s.Mem.UsedPct >= 92 {
-		add(true, toMem, "memory almost full (%s%%)", f1(s.Mem.UsedPct))
+		add("mem", true, toMem, "memory almost full (%s%%)", f1(s.Mem.UsedPct))
 	} else if s.Mem.UsedPct >= 80 {
-		add(false, toMem, "memory filling up (%s%%)", f1(s.Mem.UsedPct))
+		add("mem", false, toMem, "memory filling up (%s%%)", f1(s.Mem.UsedPct))
 	}
 	if s.Mem.SwapTotal > 0 && s.Mem.SwapPct >= 20 {
-		add(s.Mem.SwapPct >= 50, toMem, "swapping (%s%% of swap used)", f1(s.Mem.SwapPct))
+		add("swap", s.Mem.SwapPct >= 50, toMem, "swapping (%s%% of swap used)", f1(s.Mem.SwapPct))
 	}
 
 	if s.CPU.Busy >= 95 {
-		add(true, toCPU, "CPU saturated (%s%%)", f1(s.CPU.Busy))
+		add("cpu", true, toCPU, "CPU saturated (%s%%)", f1(s.CPU.Busy))
 	} else if s.CPU.Busy >= 85 {
-		add(false, toCPU, "CPU busy (%s%%)", f1(s.CPU.Busy))
+		add("cpu", false, toCPU, "CPU busy (%s%%)", f1(s.CPU.Busy))
 	}
 	if s.CPU.Iowait >= 10 {
-		add(true, toIO, "high I/O wait (%s%%)", f1(s.CPU.Iowait))
+		add("iowait", true, toIO, "high I/O wait (%s%%)", f1(s.CPU.Iowait))
 	} else if s.CPU.Iowait >= 3 {
-		add(false, toIO, "I/O wait climbing (%s%%)", f1(s.CPU.Iowait))
+		add("iowait", false, toIO, "I/O wait climbing (%s%%)", f1(s.CPU.Iowait))
 	}
 	if s.CPU.Steal >= 10 {
-		add(false, toCPU, "hypervisor stealing %s%% of CPU", f1(s.CPU.Steal))
+		add("steal", false, toCPU, "hypervisor stealing %s%% of CPU", f1(s.CPU.Steal))
 	}
 
 	cores := float64(s.CPU.Cores)
@@ -121,54 +130,54 @@ func (m model) findings() []finding {
 		cores = 1
 	}
 	if per := s.Load1 / cores; per >= 2 {
-		add(true, toCPU, "load %.2f on %d cores", s.Load1, s.CPU.Cores)
+		add("load", true, toCPU, "load %.2f on %d cores", s.Load1, s.CPU.Cores)
 	} else if per >= 1 {
-		add(false, toCPU, "load %.2f on %d cores", s.Load1, s.CPU.Cores)
+		add("load", false, toCPU, "load %.2f on %d cores", s.Load1, s.CPU.Cores)
 	}
 
 	if s.PSI.Available {
 		if s.PSI.IOSome >= 20 {
-			add(true, toIO, "disk pressure high (%s%%)", f1(s.PSI.IOSome))
+			add("psi-io", true, toIO, "disk pressure high (%s%%)", f1(s.PSI.IOSome))
 		}
 		if s.PSI.MemSome >= 10 {
-			add(true, toMem, "memory pressure (%s%%)", f1(s.PSI.MemSome))
+			add("psi-mem", true, toMem, "memory pressure (%s%%)", f1(s.PSI.MemSome))
 		}
 	}
 
 	for _, d := range s.Disks {
 		if d.Util >= 95 {
-			add(true, toIO, "%s %s%% busy", d.Name, f1(d.Util))
+			add("disk-busy:"+d.Name, true, toIO, "%s %s%% busy", d.Name, f1(d.Util))
 		}
 		if d.AwaitMs >= 100 {
-			add(true, toIO, "%s slow (%sms per I/O)", d.Name, f1(d.AwaitMs))
+			add("disk-slow:"+d.Name, true, toIO, "%s slow (%sms per I/O)", d.Name, f1(d.AwaitMs))
 		}
 	}
 
 	for _, fs := range s.FS {
 		if fs.Stale {
-			add(true, toIO, "%s not responding", fs.Mount)
+			add("fs-stale:"+fs.Mount, true, toIO, "%s not responding", fs.Mount)
 			continue
 		}
 		if fs.UsedPct >= 95 {
-			add(true, toIO, "%s almost full (%s%%)", fs.Mount, f1(fs.UsedPct))
+			add("fs-full:"+fs.Mount, true, toIO, "%s almost full (%s%%)", fs.Mount, f1(fs.UsedPct))
 		} else if fs.UsedPct >= 85 {
-			add(false, toIO, "%s filling up (%s%%)", fs.Mount, f1(fs.UsedPct))
+			add("fs-full:"+fs.Mount, false, toIO, "%s filling up (%s%%)", fs.Mount, f1(fs.UsedPct))
 		}
 		if fs.InodePct >= 90 {
-			add(true, toIO, "%s out of inodes (%s%%)", fs.Mount, f1(fs.InodePct))
+			add("fs-inodes:"+fs.Mount, true, toIO, "%s out of inodes (%s%%)", fs.Mount, f1(fs.InodePct))
 		}
 	}
 
 	for _, n := range s.NICs {
 		if n.ErrPs > 0 {
-			add(false, toNet, "%s errors", n.Name)
+			add("nic-err:"+n.Name, false, toNet, "%s errors", n.Name)
 		}
 		if n.DropPs >= 1 {
-			add(false, toNet, "%s dropping packets", n.Name)
+			add("nic-drop:"+n.Name, false, toNet, "%s dropping packets", n.Name)
 		}
 	}
 	if s.TCP.Available && s.TCP.RetransPct >= 5 {
-		add(false, toNet, "TCP retransmits %s%%", f1(s.TCP.RetransPct))
+		add("tcp-retrans", false, toNet, "TCP retransmits %s%%", f1(s.TCP.RetransPct))
 	}
 
 	// Critical first, order within each severity preserved (roughly
@@ -181,7 +190,10 @@ func (m model) findings() []finding {
 // renderer and the click handler are both built from this list so a click can
 // never land on a different finding than the one under the pointer.
 type statusRegion struct {
-	f      finding
+	f finding
+	// label is what is drawn, which is f.text except on a terminal too
+	// narrow to hold even one finding — see statusLayout.
+	label  string
 	x0, x1 int
 }
 
@@ -209,8 +221,23 @@ func statusLayout(found []finding, w int) (regions []statusRegion, hidden int) {
 		if used+lead+text+tail > w {
 			break
 		}
-		regions = append(regions, statusRegion{f: f, x0: used + lead, x1: used + lead + text})
+		regions = append(regions, statusRegion{f: f, label: f.text, x0: used + lead, x1: used + lead + text})
 		used += lead + text
+	}
+	// Nothing fit. Rather than a bare "⚠ +1 more" — a count of the things
+	// it is more than, with none of them shown — draw as much of the first
+	// finding as there is room for. On a 40-column terminal what is wrong
+	// with the machine is the whole point of the line; how many other
+	// things are also wrong is not.
+	if len(regions) == 0 {
+		room := w - 2 // the marker and the space after it
+		if room >= 8 {
+			label := truncate(found[0].text, room)
+			regions = append(regions, statusRegion{
+				f: found[0], label: label,
+				x0: 2, x1: 2 + utf8.RuneCountInString(label),
+			})
+		}
 	}
 	return regions, len(found) - len(regions)
 }
@@ -220,10 +247,15 @@ func statusLayout(found []finding, w int) (regions []statusRegion, hidden int) {
 // "+N more" count rather than wrapping onto a second line, which would
 // break every other row's height budget.
 func (m model) renderStatus(w int) string {
+	return renderStatusFor(m.findings(), w)
+}
+
+// renderStatusFor is renderStatus with the findings already in hand, so the
+// line can be laid out against a given set of them directly.
+func renderStatusFor(found []finding, w int) string {
 	if w < 1 {
 		return ""
 	}
-	found := m.findings()
 	if len(found) == 0 {
 		// Truncate the plain text and style it after, never the other way
 		// round: truncate() counts runes, so cutting already-styled text
@@ -256,8 +288,8 @@ func (m model) renderStatus(w int) string {
 		}
 		// Underlined because it is a link: this text goes somewhere, and
 		// nothing else on the screen would tell you that.
-		line += style.Underline(true).Render(r.f.text)
-		used += utf8.RuneCountInString(r.f.text)
+		line += style.Underline(true).Render(r.label)
+		used += utf8.RuneCountInString(r.label)
 	}
 	if hidden > 0 {
 		suffix := fmt.Sprintf(" +%d more", hidden)
@@ -276,6 +308,7 @@ func (m *model) applyJump(f finding) (tea.Model, tea.Cmd) {
 	m.detail = nil
 	m.editing = false
 	m.filter = t.filter
+	m.filterFromJump = t.filter != ""
 	m.resetScroll()
 	// A filter for blocked processes is useless if the kernel threads
 	// they're waiting behind are hidden — D state is exactly where a
@@ -304,10 +337,24 @@ func (m *model) jumpToFinding() (tea.Model, tea.Cmd) {
 	if len(found) == 0 {
 		return m.showToast("Nothing wrong to jump to.", true)
 	}
-	if m.findingSel >= len(found) {
-		m.findingSel = 0
+	// Step to the one after whichever finding g last landed on, found by
+	// key rather than by remembering its index.
+	//
+	// An index is only meaningful against the list it was taken from, and
+	// this list is rebuilt from a fresh sample on every press: a machine
+	// that stops having processes stuck on disk between two presses loses a
+	// finding, everything after it shifts down a place, and the saved index
+	// then points at a finding already visited while the one it should have
+	// reached is skipped. Which is precisely the machine people press g on
+	// — a steady box has nothing to step through.
+	next := 0
+	for i, f := range found {
+		if f.key == m.findingLast {
+			next = (i + 1) % len(found)
+			break
+		}
 	}
-	f := found[m.findingSel]
-	m.findingSel = (m.findingSel + 1) % len(found)
+	f := found[next]
+	m.findingLast = f.key
 	return m.applyJump(f)
 }

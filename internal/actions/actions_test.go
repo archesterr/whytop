@@ -2,6 +2,7 @@ package actions
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"testing"
@@ -101,5 +102,40 @@ func TestFDActionsRefuseDangerousTargets(t *testing.T) {
 		if err := TruncateFD(c.pid, c.fd, ""); err == nil {
 			t.Errorf("TruncateFD accepted %s (pid=%d fd=%q)", c.name, c.pid, c.fd)
 		}
+	}
+}
+
+// Truncating frees the blocks either way, but what the operator sees
+// afterwards depends on how the writer opened the file: an appender's next
+// write starts at zero, a plain writer's resumes at the offset it held and
+// leaves a hole, so ls -l keeps reporting the old size long after the space
+// came back. whytop has to know which, to say which.
+func TestFDAppendsReadsTheOpenFlags(t *testing.T) {
+	dir := t.TempDir()
+	for _, c := range []struct {
+		name  string
+		flags int
+		want  bool
+	}{
+		{"append", os.O_WRONLY | os.O_CREATE | os.O_APPEND, true},
+		{"plain write", os.O_WRONLY | os.O_CREATE, false},
+		{"read-write, no append", os.O_RDWR | os.O_CREATE, false},
+	} {
+		f, err := os.OpenFile(filepath.Join(dir, c.name), c.flags, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := FDAppends(int32(os.Getpid()), strconv.Itoa(int(f.Fd()))); got != c.want {
+			t.Errorf("%s: FDAppends = %v, want %v", c.name, got, c.want)
+		}
+		f.Close()
+	}
+}
+
+// A descriptor that is gone, or a kernel without fdinfo, must not produce a
+// warning about sparseness that nobody can act on.
+func TestFDAppendsSaysNothingWhenItCannotTell(t *testing.T) {
+	if !FDAppends(int32(os.Getpid()), "99999") {
+		t.Error("a missing descriptor produced a sparse-file warning")
 	}
 }

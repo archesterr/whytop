@@ -1,0 +1,12 @@
+---
+# Salsa's shared pipeline: build, lintian, autopkgtest, piuparts, reprotest
+# and blhc on every push. The Go team expects a green pipeline on the MR that
+# asks for sponsorship, so this is the first thing to get passing.
+include:
+  - https://salsa.debian.org/salsa-ci-team/pipeline/raw/master/recipes/debian.yml
+
+variables:
+  SALSA_CI_DISABLE_BUILD_PACKAGE_ALL: 1
+  # Lintian is advisory by default in the shared pipeline; the point of
+  # aiming at the archive is to fix what it says rather than read past it.
+  SALSA_CI_LINTIAN_FAIL_WARNING: 1

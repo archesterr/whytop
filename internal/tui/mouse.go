@@ -14,7 +14,27 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.confirm != nil {
 		return m, nil // never let a stray click confirm a destructive action
 	}
+	// Once the mouse has been handed to the terminal, whytop ignores mouse
+	// events outright rather than trusting the terminal to have stopped
+	// sending them. Nothing guarantees it did: DECSET 1002/1003 can be
+	// swallowed by a multiplexer reporting on its own account, and a click
+	// that sorted a column out from under a drag the operator thinks is a
+	// selection would be indistinguishable from a bug. The state whytop
+	// shows in the footer is the state whytop honours.
+	if m.mouseOff {
+		return m, nil
+	}
 	switch msg.Button {
+	case tea.MouseButtonRight:
+		// Right-click is what people press when they want to copy, so that
+		// is what it does: it stops whytop asking for mouse events, which
+		// is the only thing standing between them and the terminal's own
+		// selection and copy. Only the press — a button reports twice, and
+		// releasing after the handover must not toggle it straight back.
+		if msg.Action != tea.MouseActionPress {
+			return m, nil
+		}
+		return m.releaseMouse()
 	case tea.MouseButtonWheelUp:
 		return m.wheelMove(-1)
 	case tea.MouseButtonWheelDown:
@@ -133,6 +153,6 @@ func (m *model) clickRow(idx int) (tea.Model, tea.Cmd) {
 	if m.sel == rows[target].key {
 		return m.openSelected()
 	}
-	m.sel = rows[target].key
+	m.sel, m.selIdx = rows[target].key, target
 	return *m, nil
 }

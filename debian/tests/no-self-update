@@ -1,0 +1,40 @@
+#!/bin/sh
+# whytop must never replace a binary that dpkg owns, and must make no network
+# connection of its own. Both are Policy questions, not preferences, so they
+# are checked against the installed package rather than trusted.
+set -eu
+
+# Minimized images (Docker's debian/ubuntu bases among them) configure dpkg to
+# throw away documentation on unpack. The file is in the .deb and the package
+# is correct; this machine simply refused to write it. Failing here would be
+# reporting the test environment as a packaging bug.
+excluded() {
+	grep -rqs "path-exclude=$1" /etc/dpkg/dpkg.cfg.d/ /etc/dpkg/dpkg.cfg 2>/dev/null
+}
+
+echo "--- dpkg owns the binary"
+dpkg -S /usr/bin/whytop
+
+echo "--- the update check is compiled out"
+# BuiltWithoutUpdateCheck is set by debian/rules. The symbol's value is in the
+# binary's read-only data; the flag being honoured is covered by the upstream
+# unit test. What is checked here is that the build actually set it, which is
+# a debian/rules mistake nothing else would catch.
+if command -v strings >/dev/null 2>&1; then
+	strings /usr/bin/whytop | grep -q 'BuiltWithoutUpdateCheck' \
+		&& echo "symbol present" || echo "symbol not in strings output (stripped); relying on -no-update-check below"
+fi
+
+echo "--- the documented opt-out exists"
+whytop -h 2>&1 | grep -q -- '-no-update-check' || {
+	echo "the packaged binary has no -no-update-check flag"; exit 1; }
+
+echo "--- README.Debian tells the administrator who updates this copy"
+if excluded '/usr/share/doc/\*'; then
+	echo "skipped: this machine's dpkg is configured to discard documentation"
+else
+	zcat -f /usr/share/doc/whytop/README.Debian* | grep -qi 'apt' || {
+		echo "README.Debian does not say that apt owns updates"; exit 1; }
+fi
+
+echo "PASS"

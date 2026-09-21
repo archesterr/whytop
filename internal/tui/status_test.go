@@ -110,3 +110,118 @@ func TestRenderStatusNeverOverflows(t *testing.T) {
 		}
 	}
 }
+
+// On a terminal too narrow for even one finding, the status line used to
+// say "⚠ +1 more" — a count of the things it was more than, with none of
+// them shown. What is wrong with the machine is the whole point of the
+// line; how many other things are also wrong is not.
+func TestANarrowStatusLineStillSaysWhatIsWrong(t *testing.T) {
+	found := []finding{
+		{text: "/opt/claude-code filling up (90.5%)", crit: true},
+		{text: "CPU saturated (100.0%)"},
+	}
+	for _, w := range []int{20, 30, 36, 39} {
+		regions, hidden := statusLayout(found, w)
+		if len(regions) == 0 {
+			t.Errorf("w=%d: nothing drawn at all (hidden=%d)", w, hidden)
+			continue
+		}
+		if !strings.HasPrefix(found[0].text, strings.TrimSuffix(regions[0].label, "…")) {
+			t.Errorf("w=%d: drew %q, which is not the start of %q", w, regions[0].label, found[0].text)
+		}
+		if got := visLen(regions[0].label); got > w-2 {
+			t.Errorf("w=%d: the label is %d wide, past the %d columns there are", w, got, w-2)
+		}
+		// And the whole rendered line must still fit.
+		if got := visLen(renderStatusFor(found, w)); got > w {
+			t.Errorf("w=%d: the status line rendered %d columns wide", w, got)
+		}
+	}
+}
+
+// A width with no room for anything readable draws the marker alone rather
+// than a word cut to two letters.
+func TestAHopelesslyNarrowStatusLineDrawsTheMarkerOnly(t *testing.T) {
+	found := []finding{{text: "/opt/claude-code filling up (90.5%)"}}
+	if regions, _ := statusLayout(found, 6); len(regions) != 0 {
+		t.Errorf("6 columns drew %q", regions[0].label)
+	}
+}
+
+// g steps to the next problem. It used to remember its place as an index
+// into the findings list — but that list is rebuilt from a fresh sample on
+// every press, so a machine that stops having processes stuck on disk
+// between two presses loses a finding, everything after it shifts down, and
+// the saved index lands on one already visited while skipping the one it
+// should have reached. That is exactly the machine people press g on: a
+// steady box has nothing to step through.
+func TestJumpStepsToTheNextProblemWhenTheListChangesUnderIt(t *testing.T) {
+	// Three findings: blocked processes, CPU, load.
+	snap := testSnap()
+	for i := range snap.Procs {
+		snap.Procs[i].State = "D"
+	}
+	snap.CPU.Busy, snap.CPU.Cores, snap.Load1 = 99, 4, 12
+	m := model{snap: snap, sortKey: "cpu", width: 140, height: 40}
+
+	found := m.findings()
+	if len(found) < 3 {
+		t.Fatalf("the fixture produced %d findings, want at least 3: %+v", len(found), found)
+	}
+	if found[0].key != "blocked" {
+		t.Fatalf("the fixture's first finding is %q, not the blocked one: %+v", found[0].key, found)
+	}
+	got, _ := m.jumpToFinding()
+	m = got.(model)
+	if m.findingLast != "blocked" {
+		t.Fatalf("the first press landed on %q, want the blocked processes", m.findingLast)
+	}
+
+	// Now the blocked processes clear — a machine recovering — and that
+	// finding drops off the front, shifting everything after it down one.
+	recovered := testSnap()
+	recovered.CPU.Busy, recovered.CPU.Cores, recovered.Load1 = 99, 4, 12
+	m.snap = recovered
+	after := m.findings()
+	if len(after) < 2 || after[0].key != "cpu" {
+		t.Fatalf("after recovering, the findings are %+v", after)
+	}
+
+	// The next press must land on the finding that now follows the one it
+	// was on — "cpu". Remembering index 1 would land on "load" and skip it.
+	got, _ = m.jumpToFinding()
+	if got.(model).findingLast != "cpu" {
+		t.Errorf("g skipped to %q; the finding after the blocked one is now \"cpu\"",
+			got.(model).findingLast)
+	}
+}
+
+// And with the list steady, g walks every finding once and comes back round
+// rather than sticking or skipping.
+func TestJumpWalksEveryFindingInTurn(t *testing.T) {
+	snap := testSnap()
+	for i := range snap.Procs {
+		snap.Procs[i].State = "D"
+	}
+	snap.CPU.Busy, snap.CPU.Cores, snap.Load1 = 99, 4, 12
+	m := model{snap: snap, sortKey: "cpu", width: 140, height: 40}
+	n := len(m.findings())
+	if n < 2 {
+		t.Fatalf("the fixture produced %d findings, want at least 2", n)
+	}
+
+	seen := map[string]int{}
+	for i := 0; i < n; i++ {
+		got, _ := m.jumpToFinding()
+		m = got.(model)
+		seen[m.findingLast]++
+	}
+	if len(seen) != n {
+		t.Errorf("%d presses visited %d of %d findings: %v", n, len(seen), n, seen)
+	}
+	for k, c := range seen {
+		if c != 1 {
+			t.Errorf("g landed on %q %d times in one pass", k, c)
+		}
+	}
+}

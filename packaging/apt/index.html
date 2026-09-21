@@ -1,0 +1,91 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>whytop apt repository</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d24; --muted: #5b6270;
+    --line: #dfe3ea; --code-bg: #f5f7fa; --accent: #1f5fd0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171d; --fg: #e6e9ef; --muted: #99a1b0;
+      --line: #2b313c; --code-bg: #1b1f27; --accent: #7aa7ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171d; --fg: #e6e9ef; --muted: #99a1b0;
+    --line: #2b313c; --code-bg: #1b1f27; --accent: #7aa7ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg); margin: 0;
+    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; padding: 3rem 16px 5rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 .3rem; letter-spacing: -.02em; }
+  h2 { font-size: 1.1rem; margin: 2.4rem 0 .6rem; }
+  .sub { color: var(--muted); margin: 0 0 2rem; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .9rem 1rem; overflow-x: auto; font-size: .86rem; line-height: 1.55;
+  }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  p code { background: var(--code-bg); padding: .1rem .35rem; border-radius: 4px; font-size: .9em; }
+  .fpr { font-size: .8rem; word-break: break-all; color: var(--muted); }
+  a { color: var(--accent); }
+  footer { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .88rem; }
+  .note { border-left: 3px solid var(--line); padding-left: 1rem; color: var(--muted); }
+</style>
+<main>
+  <h1>whytop</h1>
+  <p class="sub">Live terminal UI for troubleshooting Linux servers — as an apt repository.</p>
+
+  <h2>Install</h2>
+  <p>One block, copy and paste. It fetches the signing key into its own keyring and adds the repository bound to that key alone.</p>
+<pre><code>sudo install -d -m 0755 /usr/share/keyrings
+curl -fsSL https://archesterr.github.io/whytop/whytop-archive-keyring.gpg \
+  | sudo tee /usr/share/keyrings/whytop-archive-keyring.gpg > /dev/null
+
+sudo tee /etc/apt/sources.list.d/whytop.sources > /dev/null &lt;&lt;'EOF'
+Types: deb
+URIs: https://archesterr.github.io/whytop
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/whytop-archive-keyring.gpg
+EOF
+
+sudo apt update
+sudo apt install whytop</code></pre>
+
+  <p class="note">
+    <code>Signed-By</code> matters: without it, this key could sign packages for
+    <em>any</em> repository on the machine. Bound this way it can only ever
+    vouch for whytop.
+  </p>
+
+  <h2>Verify the key first</h2>
+  <p>Reasonable thing to do before trusting a repository. The fingerprint should be:</p>
+  <p class="fpr"><code>__FINGERPRINT__</code></p>
+<pre><code>curl -fsSL https://archesterr.github.io/whytop/whytop.asc | gpg --show-keys</code></pre>
+
+  <h2>Updates</h2>
+  <p>
+    <code>apt upgrade</code>, like anything else. The packaged binary has its
+    own update check removed at build time, so it makes no network connection
+    of its own — apt owns updates for this copy.
+  </p>
+
+  <h2>Architectures</h2>
+  <p>amd64 and arm64. Debian, Ubuntu and derivatives; whytop needs no libraries beyond libc.</p>
+
+  <h2>Uninstall</h2>
+<pre><code>sudo apt remove whytop
+sudo rm /etc/apt/sources.list.d/whytop.sources \
+        /usr/share/keyrings/whytop-archive-keyring.gpg</code></pre>
+
+  <footer>
+    Source, issues and releases:
+    <a href="https://github.com/archesterr/whytop">github.com/archesterr/whytop</a> · MIT
+  </footer>
+</main>

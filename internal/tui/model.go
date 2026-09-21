@@ -116,8 +116,17 @@ type model struct {
 	// top is the first visible row of the process list. It is a position
 	// the operator moved to, not a function of the selection, so that a
 	// list being read holds still while the cursor moves through it.
-	top        int
-	findingSel int // which status-line finding g jumps to next
+	top int
+	// selIdx is the row the cursor was last on, by position. m.sel holds
+	// its PID, which is the right thing to follow while the process lives
+	// and nothing at all once it exits — see reanchorSel.
+	selIdx int
+
+	// findingLast is the key of the finding g last jumped to, so the next
+	// press lands on the one after it. A key rather than an index, because
+	// the findings list is rebuilt from a fresh sample every press — see
+	// jumpToFinding.
+	findingLast string
 
 	// help shows the key map. tree orders the list as a forest, the way
 	// htop's t does. fullPath is htop's p: the whole path, or just the
@@ -129,6 +138,11 @@ type model struct {
 	// mouseOff means the operator has handed the mouse back to the terminal
 	// so they can select and copy text. See toggleMouse.
 	mouseOff bool
+
+	// filterFromJump marks a filter that g or a click on a finding put
+	// there, rather than one the operator typed. The two look the same on
+	// screen and differ under "/": see handleListKey.
+	filterFromJump bool
 
 	// lockOrder freezes the process list's row order. See lockRank.
 	lockOrder bool
@@ -266,6 +280,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case snapMsg:
 		m.snap = msg
+		m.reanchorSel()
 		var cmds []tea.Cmd
 		if dc := m.resolveDeepLink(); dc != nil {
 			cmds = append(cmds, dc)

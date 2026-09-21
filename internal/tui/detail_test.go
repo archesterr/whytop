@@ -175,3 +175,44 @@ func TestFileActionsNeedFocusAndAlwaysConfirm(t *testing.T) {
 		t.Error("truncating leaves the process running and shouldn't be styled as dangerous")
 	}
 }
+
+// A process that exits keeps its panel open — you asked to see it, and
+// being thrown back to the list the instant it died would take the answer
+// away with it. But x, X, r and j can do nothing to a PID that is gone and
+// silently no-op, so the footer must stop offering them: a footer that
+// lists a key which then refuses is a footer people stop reading, which is
+// the same rule the remote-host case already follows.
+func TestThePanelOfADeadProcessOffersNothingItCannotDo(t *testing.T) {
+	m := model{snap: testSnap(), width: 140, height: 40,
+		detail: &detailState{pid: 99999, loaded: true}} // never in the snapshot
+	foot := stripANSI(m.renderFooter(200))
+	for _, gone := range []string{"stop", "kill", "restart", "journal", "live-log", "empty file", "close fd"} {
+		if strings.Contains(foot, gone) {
+			t.Errorf("the footer still offers %q for a process that has exited: %s", gone, foot)
+		}
+	}
+	for _, want := range []string{"exited", "esc"} {
+		if !strings.Contains(foot, want) {
+			t.Errorf("the footer does not mention %q: %s", want, foot)
+		}
+	}
+	// And the panel itself still explains where the process went.
+	if body := stripANSI(m.renderDetail(140, 30)); !strings.Contains(body, "no longer exists") {
+		t.Errorf("the panel does not say the process is gone: %s", body)
+	}
+}
+
+// A live process keeps every action it can actually perform.
+func TestThePanelOfALiveProcessKeepsItsActions(t *testing.T) {
+	m := model{snap: testSnap(), width: 140, height: 40,
+		detail: &detailState{pid: 42, loaded: true}}
+	foot := stripANSI(m.renderFooter(200))
+	for _, want := range []string{"stop", "kill", "journal"} {
+		if !strings.Contains(foot, want) {
+			t.Errorf("a live process lost %q from its footer: %s", want, foot)
+		}
+	}
+	if strings.Contains(foot, "exited") {
+		t.Errorf("a live process was called exited: %s", foot)
+	}
+}

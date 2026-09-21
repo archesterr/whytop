@@ -1,0 +1,64 @@
+Source: whytop
+Section: admin
+Priority: optional
+Maintainer: Armin Hossein Pour <arminney77@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               dh-golang,
+               golang-any (>= 2:1.26~),
+               golang-github-aymanbagabas-go-osc52-dev,
+               golang-github-charmbracelet-bubbletea-dev,
+               golang-github-charmbracelet-colorprofile-dev,
+               golang-github-charmbracelet-lipgloss-dev,
+               golang-github-charmbracelet-x-ansi-dev,
+               golang-github-charmbracelet-x-cellbuf-dev,
+               golang-github-charmbracelet-x-term-dev,
+               golang-github-clipperhouse-displaywidth-dev,
+               golang-github-clipperhouse-stringish-dev,
+               golang-github-clipperhouse-uax29-dev,
+               golang-github-lucasb-eyer-go-colorful-dev,
+               golang-github-mattn-go-isatty-dev,
+               golang-github-mattn-go-runewidth-dev,
+               golang-github-muesli-ansi-dev,
+               golang-github-muesli-cancelreader-dev,
+               golang-github-muesli-termenv-dev,
+               golang-github-rivo-uniseg-dev,
+               golang-github-shirou-gopsutil-dev,
+               golang-github-tklauser-go-sysconf-dev,
+               golang-github-tklauser-numcpus-dev,
+               golang-github-xo-terminfo-dev,
+               golang-golang-x-crypto-dev,
+               golang-golang-x-sys-dev
+Standards-Version: 4.7.0
+Homepage: https://github.com/archesterr/whytop
+Vcs-Browser: https://salsa.debian.org/go-team/packages/whytop
+Vcs-Git: https://salsa.debian.org/go-team/packages/whytop.git
+XS-Go-Import-Path: github.com/archesterr/whytop
+Testsuite: autopkgtest-pkg-go
+Rules-Requires-Root: no
+
+Package: whytop
+Architecture: linux-any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Recommends: systemd
+Suggests: gdb, iproute2
+Built-Using: ${misc:Built-Using}
+Static-Built-Using: ${misc:Static-Built-Using}
+Description: live terminal UI for troubleshooting Linux servers
+ whytop is a process monitor for working out why a machine is behaving badly,
+ rather than only what it is doing. Alongside the process table it shows
+ per-core CPU, memory, swap, disk and network meters, and a verdict line
+ naming the problems it can see: a full filesystem, a failed unit, a process
+ the OOM killer recently killed, a mount that has stopped responding.
+ .
+ Opening a process shows its tree, its open files and sockets, the systemd
+ unit that started it, and the tail of that unit's journal, refreshed live.
+ Processes can be stopped, killed or restarted, and their unit files edited,
+ each behind a confirmation and each recorded in the audit log.
+ .
+ A remote Linux host can be watched over SSH with --host. Nothing is
+ installed on the remote host: whytop reads /proc over an ordinary SSH
+ session, and authenticates with keys or ssh-agent only.
+ .
+ whytop is useful as an unprivileged user; root, or the three capabilities
+ named in the manual page, reveal other users' sockets, disk I/O and open
+ files.

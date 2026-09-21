@@ -248,6 +248,40 @@ func TruncateFD(pid int32, fd, expectTarget string) error {
 	return f.Close()
 }
 
+// FDAppends reports whether a descriptor was opened with O_APPEND, which
+// decides what the operator sees after emptying the file it points at.
+//
+// Truncating frees the blocks either way. But a writer without O_APPEND
+// keeps its file offset where it was, so its very next write lands back at
+// (say) the two-gigabyte mark and the kernel fills everything before it
+// with a hole. The file is then sparse: df and du show the space really
+// did come back, and ls -l still shows two gigabytes. Somebody who empties
+// a log to stop a disk filling, then checks with ls, concludes it did not
+// work and goes looking for a bug that is not there — so whytop says which
+// of the two just happened rather than leaving them to find out.
+//
+// An unreadable or absent fdinfo means no claim either way: true, and the
+// caller says nothing about it.
+func FDAppends(pid int32, fd string) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/fdinfo/%s", pid, fd))
+	if err != nil {
+		return true // no fdinfo, no warning
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		rest, ok := strings.CutPrefix(line, "flags:")
+		if !ok {
+			continue
+		}
+		// fdinfo prints the open flags in octal, O_APPEND among them.
+		flags, err := strconv.ParseInt(strings.TrimSpace(rest), 8, 64)
+		if err != nil {
+			return true
+		}
+		return flags&syscall.O_APPEND != 0
+	}
+	return true
+}
+
 // ownerCouldWrite refuses to truncate anything the process's own user could
 // not have truncated themselves.
 //

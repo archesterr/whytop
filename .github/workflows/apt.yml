@@ -1,0 +1,130 @@
+name: apt-repo
+
+# Publishes an apt repository to GitHub Pages from the .deb files attached to
+# every release.
+#
+# The whole repository is rebuilt from every release each time rather than
+# appended to. That means there is no state to keep in sync with what is
+# published: delete a release and it leaves the repository on the next run,
+# re-run this workflow and the result is identical. A repository that drifts
+# from its own pool is the failure mode worth designing out, because it
+# appears on users' machines rather than here.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never two publishes at once: the second would deploy a tree built from a
+# listing taken before the first finished.
+concurrency:
+  group: apt-repo
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the tools the builder needs
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq dpkg-dev gnupg
+
+      - name: Collect every released .deb
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p debs
+          # --exclude-drafts: a draft release is not published, and its
+          # packages must not appear in the repository.
+          for tag in $(gh release list --limit 200 --exclude-drafts --json tagName -q '.[].tagName'); do
+            gh release download "$tag" --dir debs --pattern '*.deb' --clobber || true
+          done
+          n=$(find debs -name '*.deb' | wc -l)
+          echo "collected $n package(s)"
+          test "$n" -gt 0
+
+      - name: Import the signing key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APT_GPG_PRIVATE_KEY:-}" ]; then
+            echo "::error::secret APT_GPG_PRIVATE_KEY is not set."
+            echo "An unsigned apt repository is one every user has to mark [trusted=yes],"
+            echo "which turns off the check that makes adding a repository safe."
+            echo "See docs/APT-REPO.md for generating the key."
+            exit 1
+          fi
+          export GNUPGHOME="$(mktemp -d)"
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+          printf '%s' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          fpr=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/{print $10; exit}')
+          test -n "$fpr"
+          echo "APT_SIGN_KEY=$fpr" >> "$GITHUB_ENV"
+          echo "signing key $fpr"
+
+      - name: Build the repository
+        run: |
+          set -euo pipefail
+          packaging/apt/build-repo.sh --debs debs --out public --sign "$APT_SIGN_KEY"
+
+      - name: Publish the public key and the landing page
+        run: |
+          set -euo pipefail
+          # Both forms: the dearmored keyring modern apt wants under
+          # /usr/share/keyrings, and the armoured text for anyone inspecting
+          # it before they trust it.
+          gpg --export "$APT_SIGN_KEY" > public/whytop-archive-keyring.gpg
+          gpg --armor --export "$APT_SIGN_KEY" > public/whytop.asc
+          cp packaging/apt/index.html public/index.html
+          sed -i "s|__FINGERPRINT__|$APT_SIGN_KEY|g" public/index.html
+
+      - name: Check apt accepts what we just built
+        run: |
+          set -euo pipefail
+          # The repository is verified here, against real apt, before it
+          # reaches anybody. A signature or layout mistake found now costs a
+          # workflow run; found after deployment it costs every user an error
+          # on every apt update until it is fixed.
+          sudo cp public/whytop-archive-keyring.gpg /usr/share/keyrings/whytop-test.gpg
+          ( cd public && python3 -m http.server 8099 >/dev/null 2>&1 & )
+          sleep 2
+          sudo tee /etc/apt/sources.list.d/whytop-verify.sources >/dev/null <<EOF
+          Types: deb
+          URIs: http://127.0.0.1:8099
+          Suites: stable
+          Components: main
+          Architectures: amd64
+          Signed-By: /usr/share/keyrings/whytop-test.gpg
+          EOF
+          sudo apt-get update \
+            -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/whytop-verify.sources \
+            -o Dir::Etc::sourceparts=/dev/null -o APT::Get::List-Cleanup=0
+          apt-cache policy whytop
+          apt-cache policy whytop | grep -q 'Candidate: [0-9]' || {
+            echo "::error::apt sees the repository but no installable whytop"; exit 1; }
+          sudo apt-get install -y --no-install-recommends whytop
+          whytop -version
+          sh debian/tests/hardening
+          sh debian/tests/no-self-update
+          sudo rm -f /etc/apt/sources.list.d/whytop-verify.sources
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
