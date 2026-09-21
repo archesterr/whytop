@@ -4,6 +4,14 @@
 # are checked against the installed package rather than trusted.
 set -eu
 
+# Minimized images (Docker's debian/ubuntu bases among them) configure dpkg to
+# throw away documentation on unpack. The file is in the .deb and the package
+# is correct; this machine simply refused to write it. Failing here would be
+# reporting the test environment as a packaging bug.
+excluded() {
+	grep -rqs "path-exclude=$1" /etc/dpkg/dpkg.cfg.d/ /etc/dpkg/dpkg.cfg 2>/dev/null
+}
+
 echo "--- dpkg owns the binary"
 dpkg -S /usr/bin/whytop
 
@@ -22,7 +30,11 @@ whytop -h 2>&1 | grep -q -- '-no-update-check' || {
 	echo "the packaged binary has no -no-update-check flag"; exit 1; }
 
 echo "--- README.Debian tells the administrator who updates this copy"
-zcat -f /usr/share/doc/whytop/README.Debian* | grep -qi 'apt' || {
-	echo "README.Debian does not say that apt owns updates"; exit 1; }
+if excluded '/usr/share/doc/\*'; then
+	echo "skipped: this machine's dpkg is configured to discard documentation"
+else
+	zcat -f /usr/share/doc/whytop/README.Debian* | grep -qi 'apt' || {
+		echo "README.Debian does not say that apt owns updates"; exit 1; }
+fi
 
 echo "PASS"

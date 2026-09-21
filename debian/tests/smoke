@@ -2,6 +2,14 @@
 # The installed package runs, reports a version, and documents itself.
 set -eu
 
+# Minimized images (Docker's debian/ubuntu bases among them) configure dpkg to
+# throw away documentation on unpack. The file is in the .deb and the package
+# is correct; this machine simply refused to write it. Failing here would be
+# reporting the test environment as a packaging bug.
+excluded() {
+	grep -rqs "path-exclude=$1" /etc/dpkg/dpkg.cfg.d/ /etc/dpkg/dpkg.cfg 2>/dev/null
+}
+
 echo "--- whytop -version"
 whytop -version
 
@@ -16,7 +24,11 @@ echo "--- the binary is where the package says it is"
 test -x /usr/bin/whytop
 
 echo "--- the manual page is installed and gzipped"
-test -f /usr/share/man/man1/whytop.1.gz
+if excluded '/usr/share/man/\*'; then
+	echo "skipped: this machine's dpkg is configured to discard manual pages"
+else
+	test -f /usr/share/man/man1/whytop.1.gz
+fi
 
 echo "--- --help exits cleanly and names the flags"
 # Go's flag package exits 2 on -h, which is not a failure.

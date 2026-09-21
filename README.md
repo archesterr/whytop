@@ -16,6 +16,26 @@ Those tools show CPU and memory well and haven't needed to change much in 20+ ye
 
 The honest tradeoff: whytop is new and far less battle-tested than a tool that's shipped on every Linux box for two decades. It's built for the specific job of "something on this server is wrong, show me why," not as a `top` replacement for routine day-to-day glancing.
 
+## Install
+
+```bash
+sudo install -d -m 0755 /usr/share/keyrings
+curl -fsSL https://archesterr.github.io/whytop/whytop-archive-keyring.gpg \
+  | sudo tee /usr/share/keyrings/whytop-archive-keyring.gpg > /dev/null
+
+sudo tee /etc/apt/sources.list.d/whytop.sources > /dev/null <<'EOF'
+Types: deb
+URIs: https://archesterr.github.io/whytop
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/whytop-archive-keyring.gpg
+EOF
+
+sudo apt update && sudo apt install whytop
+```
+
+`Signed-By` binds the key to this repository alone — a key dropped into `trusted.gpg.d` can vouch for any repository on the machine. Updates come from `apt upgrade`; the packaged binary's own update check is removed at build time, so it makes no network connection of its own. Setting the repository up is `docs/APT-REPO.md`; other ways to install are below.
+
 ## Run
 
 ```bash
