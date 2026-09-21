@@ -384,10 +384,51 @@ func (m *model) moveSel(delta int) {
 	if idx >= len(rows) {
 		idx = len(rows) - 1
 	}
-	m.sel = rows[idx].key
+	m.sel, m.selIdx = rows[idx].key, idx
 	// The viewport follows the cursor by the smallest amount that keeps it
 	// on screen. Paging moves it by a whole screen because the cursor did.
 	m.top = clampTop(m.top, idx, len(rows), max0(m.listRowsBudget()-1))
+}
+
+// reanchorSel puts the cursor back on a row when the process it was on has
+// exited.
+//
+// The selection is a PID, which is what makes it follow a process as the
+// list re-sorts underneath it rather than sticking to a screen position.
+// The cost is that a process which exits takes the cursor with it: nothing
+// matches m.sel any more, no row is drawn as selected, and Enter and k have
+// nothing to act on until an arrow key rebuilds it.
+//
+// That is worst exactly where it matters most. Jump to the processes stuck
+// on disk and the rows are short-lived — the dd that was wedged a second
+// ago has finished and a new one has taken its place — so g lands you on
+// the problem and leaves you with no cursor to act on it.
+//
+// So when the selected PID is gone the cursor stays where it was on the
+// screen, which is what every list does when a row is removed under it, and
+// takes whichever process now occupies that position.
+func (m *model) reanchorSel() {
+	if m.sel == "" {
+		return
+	}
+	rows := m.rowKeys()
+	if len(rows) == 0 {
+		m.sel = ""
+		return
+	}
+	for _, r := range rows {
+		if r.key == m.sel {
+			return // still there; the cursor follows the process
+		}
+	}
+	idx := m.selIdx
+	if idx >= len(rows) {
+		idx = len(rows) - 1
+	}
+	if idx < 0 {
+		idx = 0
+	}
+	m.sel, m.selIdx = rows[idx].key, idx
 }
 
 // resetScroll sends the list back to its first row. Anything that changes

@@ -153,6 +153,6 @@ func (m *model) clickRow(idx int) (tea.Model, tea.Cmd) {
 	if m.sel == rows[target].key {
 		return m.openSelected()
 	}
-	m.sel = rows[target].key
+	m.sel, m.selIdx = rows[target].key, target
 	return *m, nil
 }

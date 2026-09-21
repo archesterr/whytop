@@ -117,6 +117,11 @@ type model struct {
 	// the operator moved to, not a function of the selection, so that a
 	// list being read holds still while the cursor moves through it.
 	top int
+	// selIdx is the row the cursor was last on, by position. m.sel holds
+	// its PID, which is the right thing to follow while the process lives
+	// and nothing at all once it exits — see reanchorSel.
+	selIdx int
+
 	// findingLast is the key of the finding g last jumped to, so the next
 	// press lands on the one after it. A key rather than an index, because
 	// the findings list is rebuilt from a fresh sample every press — see
@@ -275,6 +280,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case snapMsg:
 		m.snap = msg
+		m.reanchorSel()
 		var cmds []tea.Cmd
 		if dc := m.resolveDeepLink(); dc != nil {
 			cmds = append(cmds, dc)
