@@ -130,6 +130,11 @@ type model struct {
 	// so they can select and copy text. See toggleMouse.
 	mouseOff bool
 
+	// filterFromJump marks a filter that g or a click on a finding put
+	// there, rather than one the operator typed. The two look the same on
+	// screen and differ under "/": see handleListKey.
+	filterFromJump bool
+
 	// lockOrder freezes the process list's row order. See lockRank.
 	lockOrder bool
 	// lockRank is the position every PID held when the order was locked, so

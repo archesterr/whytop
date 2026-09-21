@@ -279,7 +279,7 @@ func (m model) renderFooter(w int) string {
 		if !m.detail.follow {
 			follow = "f live-log: off"
 		}
-		keys = append(keys, [2]string{"j", "journal"}, [2]string{"y", "copy log"},
+		keys = append(keys, [2]string{"j", "journal"},
 			[2]string{follow[:1], follow[2:]}, [2]string{"esc", "close"})
 	case m.help:
 		keys = [][2]string{{"h", "close help"}, {"q", "quit"}}
@@ -309,6 +309,14 @@ func (m model) renderFooter(w int) string {
 		}
 		keys = append(keys, [2]string{"<>", "sort"}, [2]string{"L", lock}, [2]string{"@", "hosts"},
 			[2]string{"h", "help"}, [2]string{"q", "quit"})
+	}
+	// While the mouse belongs to the terminal, clicking a row and rolling
+	// the wheel do nothing, and there is no other way to tell: the cursor
+	// looks the same either way. The chip leads the footer so the state is
+	// visible wherever you are, rather than only in the toast that has
+	// since expired.
+	if m.mouseOff {
+		keys = append([][2]string{{"m", "mouse: yours"}}, keys...)
 	}
 	var parts []string
 	for _, k := range keys {

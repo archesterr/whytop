@@ -110,3 +110,40 @@ func TestRenderStatusNeverOverflows(t *testing.T) {
 		}
 	}
 }
+
+// On a terminal too narrow for even one finding, the status line used to
+// say "⚠ +1 more" — a count of the things it was more than, with none of
+// them shown. What is wrong with the machine is the whole point of the
+// line; how many other things are also wrong is not.
+func TestANarrowStatusLineStillSaysWhatIsWrong(t *testing.T) {
+	found := []finding{
+		{text: "/opt/claude-code filling up (90.5%)", crit: true},
+		{text: "CPU saturated (100.0%)"},
+	}
+	for _, w := range []int{20, 30, 36, 39} {
+		regions, hidden := statusLayout(found, w)
+		if len(regions) == 0 {
+			t.Errorf("w=%d: nothing drawn at all (hidden=%d)", w, hidden)
+			continue
+		}
+		if !strings.HasPrefix(found[0].text, strings.TrimSuffix(regions[0].label, "…")) {
+			t.Errorf("w=%d: drew %q, which is not the start of %q", w, regions[0].label, found[0].text)
+		}
+		if got := visLen(regions[0].label); got > w-2 {
+			t.Errorf("w=%d: the label is %d wide, past the %d columns there are", w, got, w-2)
+		}
+		// And the whole rendered line must still fit.
+		if got := visLen(renderStatusFor(found, w)); got > w {
+			t.Errorf("w=%d: the status line rendered %d columns wide", w, got)
+		}
+	}
+}
+
+// A width with no room for anything readable draws the marker alone rather
+// than a word cut to two letters.
+func TestAHopelesslyNarrowStatusLineDrawsTheMarkerOnly(t *testing.T) {
+	found := []finding{{text: "/opt/claude-code filling up (90.5%)"}}
+	if regions, _ := statusLayout(found, 6); len(regions) != 0 {
+		t.Errorf("6 columns drew %q", regions[0].label)
+	}
+}

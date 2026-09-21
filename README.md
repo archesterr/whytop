@@ -181,25 +181,26 @@ Whytop has a few things those tools don't, and they sit on keys neither of them 
 | `@` | hosts — watch another box over SSH |
 | `L` | lock the row order |
 | `Space` | pause / resume sampling |
-| `m` | release the mouse, so the terminal can select and copy text |
+| `m`  right-click | hand the mouse to the terminal, so it can select and copy text |
 | `Tab` | in the filter: change what it searches |
 | `Esc` | clear the filter, or close a panel |
 
 | In the process panel | Keys |
 |---|---|
-| | `Tab` switch between the tree and open files, `x` stop, `X` force kill, `r` restart unit, `e` edit its unit file, `j` reload journal, `y` copy the journal, `f` pause/resume the live journal, `t` empty a file, `c` close a descriptor, `Esc` close |
+| | `Tab` switch between the tree and open files, `x` stop, `X` force kill, `r` restart unit, `e` edit its unit file, `j` reload journal, `f` pause/resume the live journal, `t` empty a file, `c` close a descriptor, `Esc` close |
 | In the hosts panel | `↑` `↓` select, `Enter` connect, `a` add a host, `c` change ssh config, `r` reload, `Esc` close |
 | Process panel | `Tab` switch between the process tree and open files, `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `e` edit its unit file (asks to `daemon-reload` after), `j` reload journal, `f` pause/resume the live journal, `Esc` close |
 | Open files | `t` empty the file (reclaims its space, process keeps running), `c` close the descriptor |
 
-Every destructive action asks for confirmation. The mouse works too: click a tab to switch, click a column header to sort by it (click again to reverse), click a row to open it, scroll to move the selection.
+Every destructive action asks for confirmation. The mouse works too: click a tab to switch, click a column header to sort by it (click again to reverse), click a row to select it and again to open it, scroll to move the selection, and right-click to hand the mouse back to the terminal so you can select and copy text.
 
-### Copying text out
+### Selecting and copying text
 
-While whytop is asking the terminal for mouse events — which is what makes clicking a row and scrolling the wheel work — the terminal hands your drags to whytop instead of painting a selection. So the gesture that copies a log line everywhere else does nothing here. Two ways out, for two different jobs:
+While whytop is asking the terminal for mouse events — which is what makes clicking a row and scrolling the wheel work — the terminal hands your drags to whytop instead of painting a selection, so dragging across a log line does nothing.
 
-- **`y` in the process panel copies the whole journal.** Not the dozen lines that fit on screen: everything `journalctl` returned, which is usually where the line that explains the failure actually is. It travels by OSC 52, so it lands on the clipboard of the terminal *in front of you* even when whytop is running on a server three SSH hops away. Following is paused at the same time, so the log stops moving while you read what you copied. A few terminals need OSC 52 turned on — it is `set -g set-clipboard on` in tmux, and `Allow applications in terminal to copy to clipboard` or similar elsewhere.
-- **`m` hands the mouse back to the terminal**, for everything else: a PID out of the list, a mount path out of the header, half a command line. Native selection works again everywhere on the screen; whytop's own clicking and wheel scrolling stop until you press `m` again. It says so when you do, both ways.
+**Right-click gives the mouse back.** That is the gesture you already make when you want to copy, so it is the one that works: right-click anywhere and whytop stops asking for mouse events. From that moment the terminal's own selection, right-click menu and paste are back, everywhere on the screen — a PID out of the list, a mount path out of the header, a block of journal lines out of the panel. The right-click that hands the mouse over is spent doing that; the next one opens your terminal's menu as usual.
+
+`m` does the same thing from the keyboard, and `m` is how you give the mouse back to whytop when you are done. While the terminal has it, whytop's own clicking and wheel scrolling are off and the footer shows a **`m` mouse: yours** chip, so it is never a mystery why a click did nothing.
 
 ## Updates
 

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -65,21 +64,35 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // toggleMouse gives mouse reporting back to the terminal, and takes it back.
 //
-// While whytop is asking for mouse events the terminal routes drags to it
-// instead of painting a selection, so click-and-drag to copy does nothing.
-// Turning reporting off restores the terminal's own selection everywhere at
-// once, at the cost of whytop's clicking and wheel scrolling — which is a
-// trade worth making for the ten seconds it takes to copy something, and
-// worth making explicitly rather than leaving people to discover that their
-// terminal has a modifier for it.
+// While whytop is asking for mouse events the terminal routes every click
+// and drag to it instead of painting a selection, so the gesture that
+// copies text everywhere else — drag across it, right-click, copy — does
+// nothing here. Turning reporting off restores the terminal's own
+// selection, its right-click menu and whatever it binds to paste, all at
+// once and for the whole screen: a PID out of the list, a mount path out
+// of the header, a stack of journal lines out of the panel. The cost is
+// whytop's own clicking and wheel scrolling for as long as it is off,
+// which is a trade worth making for the ten seconds it takes to copy
+// something, and worth making explicitly rather than leaving people to
+// discover that their terminal has a modifier for it.
 func (m model) toggleMouse() (tea.Model, tea.Cmd) {
-	m.mouseOff = !m.mouseOff
-	if m.mouseOff {
-		mm, toast := m.showToastFor("Mouse released — select and copy with the mouse as usual. m gives it back to whytop.", true, oomToastTTL)
-		return mm, tea.Batch(tea.DisableMouse, toast)
+	if !m.mouseOff {
+		return m.releaseMouse()
 	}
-	mm, toast := m.showToast("Mouse back in whytop — clicks select rows, the wheel scrolls.", true)
+	m.mouseOff = false
+	mm, toast := m.showToast("Mouse back in whytop — clicks select rows and sort columns, the wheel scrolls.", true)
 	return mm, tea.Batch(tea.EnableMouseCellMotion, toast)
+}
+
+// releaseMouse hands the mouse to the terminal and says so. It is reached
+// two ways — the m key, and a right-click, which is the gesture people
+// already make when they want to copy. The right-click that triggers it is
+// spent on the handover and does not open the terminal's menu; every one
+// after it does, because whytop is no longer being told about them.
+func (m model) releaseMouse() (tea.Model, tea.Cmd) {
+	m.mouseOff = true
+	mm, toast := m.showToastFor("Mouse is yours — drag to select, right-click to copy. m gives it back to whytop.", true, oomToastTTL)
+	return mm, tea.Batch(tea.DisableMouse, toast)
 }
 
 func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -95,6 +108,9 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Once a key has gone into the editor the filter is the operator's,
+	// however it got there.
+	m.filterFromJump = false
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.filter = ""
@@ -218,7 +234,20 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "u":
 		// htop and top both open a filter on the owner here.
 		m.editing, m.filterScope, m.filter = true, scopeUser, ""
+		m.filterFromJump = false
 	case "/":
+		// A filter g left behind is cleared first. It is a filter the
+		// operator never typed — "state:D", put there by jumping to the
+		// processes stuck on disk — and carrying it into a search means
+		// their first keystroke lands on the end of a word they did not
+		// write, in a scope they did not choose, and the search then
+		// silently matches nothing. A filter they typed themselves is
+		// kept, because re-opening it to narrow it further is the point.
+		if m.filterFromJump {
+			m.filter = ""
+			m.filterScope = scopeAll
+			m.filterFromJump = false
+		}
 		m.editing = true
 	case "l":
 		// htop runs lsof on the selected process; whytop already shows a
@@ -257,6 +286,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// take it off again without opening the filter editor first.
 		if m.filter != "" {
 			m.filter = ""
+			m.filterFromJump = false
 			m.resetScroll()
 			return m.showToast("Filter cleared.", true)
 		}
@@ -316,7 +346,7 @@ func (m *model) killSelected() (tea.Model, tea.Cmd) {
 	if !found {
 		return m.showToast("No process selected — use ↑↓ first.", false)
 	}
-	pid, name, started := p.PID, p.Name, p.Started
+	pid, name, started := p.PID, killLabel(p), p.Started
 	m.confirm = &confirmState{
 		prompt: fmt.Sprintf("Send SIGTERM to %s (PID %d)? Shift-K force-kills instead. [y/N]", safeText(name), pid),
 		run:    func() tea.Cmd { return doSignal(pid, "TERM", started) },
@@ -455,20 +485,6 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// navigation here, so the letter is free for the mnemonic it
 		// actually matches instead of an arbitrary one.
 		return m, m.loadJournalCmd(m.detail.pid)
-	case "y":
-		// The whole buffer, not the dozen lines the panel had room for:
-		// what people copy a journal for is to paste it into a ticket or a
-		// chat, and the line that explains the failure is rarely the last
-		// one. Following is paused at the same time, because a live log
-		// that scrolls on while you are reading what you just copied is
-		// the reason you wanted it in the clipboard in the first place.
-		text := m.detail.journal
-		if strings.TrimSpace(text) == "" {
-			return m.showToast("Nothing in the journal to copy yet.", false)
-		}
-		m.detail.follow = false
-		mm, toast := m.showToast(clipboardNote("the journal", countLines(text)), true)
-		return mm, tea.Batch(copyToClipboard(text), toast)
 	case "f":
 		m.detail.follow = !m.detail.follow
 		if m.detail.follow {
@@ -505,7 +521,7 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "X" {
 			sig, verb, danger = "KILL", "Force kill", true
 		}
-		pid, name, started := p.PID, p.Name, p.Started
+		pid, name, started := p.PID, killLabel(p), p.Started
 		m.confirm = &confirmState{
 			danger: danger,
 			prompt: fmt.Sprintf("%s %s (PID %d)? [y/N]", verb, safeText(name), pid),

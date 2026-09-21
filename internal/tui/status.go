@@ -181,7 +181,10 @@ func (m model) findings() []finding {
 // renderer and the click handler are both built from this list so a click can
 // never land on a different finding than the one under the pointer.
 type statusRegion struct {
-	f      finding
+	f finding
+	// label is what is drawn, which is f.text except on a terminal too
+	// narrow to hold even one finding — see statusLayout.
+	label  string
 	x0, x1 int
 }
 
@@ -209,8 +212,23 @@ func statusLayout(found []finding, w int) (regions []statusRegion, hidden int) {
 		if used+lead+text+tail > w {
 			break
 		}
-		regions = append(regions, statusRegion{f: f, x0: used + lead, x1: used + lead + text})
+		regions = append(regions, statusRegion{f: f, label: f.text, x0: used + lead, x1: used + lead + text})
 		used += lead + text
+	}
+	// Nothing fit. Rather than a bare "⚠ +1 more" — a count of the things
+	// it is more than, with none of them shown — draw as much of the first
+	// finding as there is room for. On a 40-column terminal what is wrong
+	// with the machine is the whole point of the line; how many other
+	// things are also wrong is not.
+	if len(regions) == 0 {
+		room := w - 2 // the marker and the space after it
+		if room >= 8 {
+			label := truncate(found[0].text, room)
+			regions = append(regions, statusRegion{
+				f: found[0], label: label,
+				x0: 2, x1: 2 + utf8.RuneCountInString(label),
+			})
+		}
 	}
 	return regions, len(found) - len(regions)
 }
@@ -220,10 +238,15 @@ func statusLayout(found []finding, w int) (regions []statusRegion, hidden int) {
 // "+N more" count rather than wrapping onto a second line, which would
 // break every other row's height budget.
 func (m model) renderStatus(w int) string {
+	return renderStatusFor(m.findings(), w)
+}
+
+// renderStatusFor is renderStatus with the findings already in hand, so the
+// line can be laid out against a given set of them directly.
+func renderStatusFor(found []finding, w int) string {
 	if w < 1 {
 		return ""
 	}
-	found := m.findings()
 	if len(found) == 0 {
 		// Truncate the plain text and style it after, never the other way
 		// round: truncate() counts runes, so cutting already-styled text
@@ -256,8 +279,8 @@ func (m model) renderStatus(w int) string {
 		}
 		// Underlined because it is a link: this text goes somewhere, and
 		// nothing else on the screen would tell you that.
-		line += style.Underline(true).Render(r.f.text)
-		used += utf8.RuneCountInString(r.f.text)
+		line += style.Underline(true).Render(r.label)
+		used += utf8.RuneCountInString(r.label)
 	}
 	if hidden > 0 {
 		suffix := fmt.Sprintf(" +%d more", hidden)
@@ -276,6 +299,7 @@ func (m *model) applyJump(f finding) (tea.Model, tea.Cmd) {
 	m.detail = nil
 	m.editing = false
 	m.filter = t.filter
+	m.filterFromJump = t.filter != ""
 	m.resetScroll()
 	// A filter for blocked processes is useless if the kernel threads
 	// they're waiting behind are hidden — D state is exactly where a

@@ -3,6 +3,7 @@ package tui
 import (
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/archesterr/whytop/internal/collect"
 )
@@ -293,4 +294,52 @@ func defaultSortDir(key string) int {
 		return -1
 	}
 	return 1
+}
+
+// killLabel is how a process is named in a confirmation to destroy it.
+//
+// The list's COMMAND column shows the command line; p.Name is comm, the
+// kernel's own short name, and the two are routinely different — a process
+// started with a different argv[0], an interpreter running a script, a
+// thread renamed by prctl. A confirmation that named comm was therefore
+// capable of asking "Force kill bash (PID 6295)?" about a row the operator
+// had just read as "whytop-victim-kill 9000", and the only way to confirm
+// a kill is to recognise the thing you picked.
+//
+// So the label leads with what the row showed, and keeps comm alongside it
+// when it adds something: comm is the name that cannot be faked — argv is
+// the process's own to write — and on a kill that difference is worth
+// seeing rather than hiding.
+func killLabel(p collect.Proc) string {
+	const room = 44
+	cmd := firstWord(p.Cmdline)
+	if cmd == "" {
+		return p.Name
+	}
+	// "nginx: master process" against comm "nginx" is the same name with a
+	// colon on it, not a different one, so the punctuation servers hang off
+	// argv[0] does not make every prompt say "(nginx)". And comm is capped
+	// at 15 characters by the kernel, so systemd-journald is reported as
+	// "systemd-journal" — a prefix, not a different program.
+	base := strings.TrimRight(baseName(cmd), ":-")
+	if base == p.Name || p.Name == "" || strings.HasPrefix(base, p.Name) {
+		return truncate(cmd, room)
+	}
+	return truncate(cmd, room) + " (" + p.Name + ")"
+}
+
+// firstWord is the program as it was invoked — the whole command line would
+// run a confirmation off the end of any terminal.
+func firstWord(s string) string {
+	if i := strings.IndexByte(s, ' '); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+func baseName(s string) string {
+	if i := strings.LastIndexByte(s, '/'); i >= 0 {
+		return s[i+1:]
+	}
+	return s
 }

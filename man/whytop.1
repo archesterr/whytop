@@ -83,17 +83,23 @@ which PIDs belong to it.
 Search. Tab changes which column it searches.
 .TP
 .B m
-Release the mouse back to the terminal, so text can be selected and copied
-normally. Press again to return it to
-.BR whytop .
+Hand the mouse to the terminal, so text can be selected and copied
+normally, with the terminal's own selection and right-click menu. A
+right-click anywhere in
+.B whytop
+does the same thing, since that is the gesture people reach for when they
+want to copy. Press
+.B m
+again to return the mouse to
+.BR whytop ,
+where clicks select rows and sort columns and the wheel scrolls. While the
+terminal has it, the footer says so.
 .TP
 .B @
 Open the hosts panel and watch another machine over SSH.
 .TP
 .B Enter
 Open the selected process's panel. In the panel,
-.B y
-copies the whole journal to the clipboard,
 .B f
 pauses or resumes the live journal,
 .B x
