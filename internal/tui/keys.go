@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,12 +16,33 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.confirm != nil {
 		return m.handleConfirmKey(msg)
 	}
+	// The update prompt answers before anything else reads the key, so that
+	// y/n/l mean the prompt's three answers while it is up and nothing else.
+	// It does not swallow the rest of the keyboard: any other key leaves the
+	// prompt where it is and goes on to do what it normally does, because an
+	// unsolicited prompt has no business holding the program hostage.
+	if m.upd != nil {
+		switch msg.String() {
+		case "y", "Y", "enter":
+			return m.answerUpdate('y')
+		case "n", "N":
+			return m.answerUpdate('n')
+		case "l", "L", "esc":
+			return m.answerUpdate('l')
+		}
+	}
 	if m.editing {
 		return m.handleEditKey(msg)
 	}
 	if msg.Type == tea.KeyCtrlC {
 		m.quitting = true
 		return m, tea.Quit
+	}
+	// Handing the mouse back to the terminal works from every view, because
+	// the text someone wants to select is as often a PID in the list or a
+	// mount path in the header as it is a journal line.
+	if msg.String() == "m" {
+		return m.toggleMouse()
 	}
 	if m.help {
 		switch msg.String() {
@@ -39,6 +61,25 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDetailKey(msg)
 	}
 	return m.handleListKey(msg)
+}
+
+// toggleMouse gives mouse reporting back to the terminal, and takes it back.
+//
+// While whytop is asking for mouse events the terminal routes drags to it
+// instead of painting a selection, so click-and-drag to copy does nothing.
+// Turning reporting off restores the terminal's own selection everywhere at
+// once, at the cost of whytop's clicking and wheel scrolling — which is a
+// trade worth making for the ten seconds it takes to copy something, and
+// worth making explicitly rather than leaving people to discover that their
+// terminal has a modifier for it.
+func (m model) toggleMouse() (tea.Model, tea.Cmd) {
+	m.mouseOff = !m.mouseOff
+	if m.mouseOff {
+		mm, toast := m.showToastFor("Mouse released — select and copy with the mouse as usual. m gives it back to whytop.", true, oomToastTTL)
+		return mm, tea.Batch(tea.DisableMouse, toast)
+	}
+	mm, toast := m.showToast("Mouse back in whytop — clicks select rows, the wheel scrolls.", true)
+	return mm, tea.Batch(tea.EnableMouseCellMotion, toast)
 }
 
 func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -414,6 +455,20 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// navigation here, so the letter is free for the mnemonic it
 		// actually matches instead of an arbitrary one.
 		return m, m.loadJournalCmd(m.detail.pid)
+	case "y":
+		// The whole buffer, not the dozen lines the panel had room for:
+		// what people copy a journal for is to paste it into a ticket or a
+		// chat, and the line that explains the failure is rarely the last
+		// one. Following is paused at the same time, because a live log
+		// that scrolls on while you are reading what you just copied is
+		// the reason you wanted it in the clipboard in the first place.
+		text := m.detail.journal
+		if strings.TrimSpace(text) == "" {
+			return m.showToast("Nothing in the journal to copy yet.", false)
+		}
+		m.detail.follow = false
+		mm, toast := m.showToast(clipboardNote("the journal", countLines(text)), true)
+		return mm, tea.Batch(copyToClipboard(text), toast)
 	case "f":
 		m.detail.follow = !m.detail.follow
 		if m.detail.follow {

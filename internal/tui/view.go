@@ -231,6 +231,8 @@ func (m model) listBudget(h int) int {
 func (m model) renderFooter(w int) string {
 	var keys [][2]string
 	switch {
+	case m.upd != nil:
+		return m.updatePrompt(w)
 	case m.confirm != nil:
 		style := stConfirm
 		if m.confirm.danger {
@@ -277,7 +279,8 @@ func (m model) renderFooter(w int) string {
 		if !m.detail.follow {
 			follow = "f live-log: off"
 		}
-		keys = append(keys, [2]string{"j", "journal"}, [2]string{follow[:1], follow[2:]}, [2]string{"esc", "close"})
+		keys = append(keys, [2]string{"j", "journal"}, [2]string{"y", "copy log"},
+			[2]string{follow[:1], follow[2:]}, [2]string{"esc", "close"})
 	case m.help:
 		keys = [][2]string{{"h", "close help"}, {"q", "quit"}}
 

@@ -161,17 +161,42 @@ Whytop has a few things those tools don't, and they sit on keys neither of them 
 | `@` | hosts — watch another box over SSH |
 | `L` | lock the row order |
 | `Space` | pause / resume sampling |
+| `m` | release the mouse, so the terminal can select and copy text |
 | `Tab` | in the filter: change what it searches |
 | `Esc` | clear the filter, or close a panel |
 
 | In the process panel | Keys |
 |---|---|
-| | `Tab` switch between the tree and open files, `x` stop, `X` force kill, `r` restart unit, `e` edit its unit file, `j` reload journal, `f` pause/resume the live journal, `t` empty a file, `c` close a descriptor, `Esc` close |
+| | `Tab` switch between the tree and open files, `x` stop, `X` force kill, `r` restart unit, `e` edit its unit file, `j` reload journal, `y` copy the journal, `f` pause/resume the live journal, `t` empty a file, `c` close a descriptor, `Esc` close |
 | In the hosts panel | `↑` `↓` select, `Enter` connect, `a` add a host, `c` change ssh config, `r` reload, `Esc` close |
 | Process panel | `Tab` switch between the process tree and open files, `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `e` edit its unit file (asks to `daemon-reload` after), `j` reload journal, `f` pause/resume the live journal, `Esc` close |
 | Open files | `t` empty the file (reclaims its space, process keeps running), `c` close the descriptor |
 
 Every destructive action asks for confirmation. The mouse works too: click a tab to switch, click a column header to sort by it (click again to reverse), click a row to open it, scroll to move the selection.
+
+### Copying text out
+
+While whytop is asking the terminal for mouse events — which is what makes clicking a row and scrolling the wheel work — the terminal hands your drags to whytop instead of painting a selection. So the gesture that copies a log line everywhere else does nothing here. Two ways out, for two different jobs:
+
+- **`y` in the process panel copies the whole journal.** Not the dozen lines that fit on screen: everything `journalctl` returned, which is usually where the line that explains the failure actually is. It travels by OSC 52, so it lands on the clipboard of the terminal *in front of you* even when whytop is running on a server three SSH hops away. Following is paused at the same time, so the log stops moving while you read what you copied. A few terminals need OSC 52 turned on — it is `set -g set-clipboard on` in tmux, and `Allow applications in terminal to copy to clipboard` or similar elsewhere.
+- **`m` hands the mouse back to the terminal**, for everything else: a PID out of the list, a mount path out of the header, half a command line. Native selection works again everywhere on the screen; whytop's own clicking and wheel scrolling stop until you press `m` again. It says so when you do, both ways.
+
+## Updates
+
+whytop checks once every twelve hours whether a newer release exists, forty-five seconds after it starts, and asks: **yes**, **no**, or **remind me later**. `no` means that release is never offered again; `later` brings it back tomorrow. Both are written to `~/.config/whytop/update.json`, so neither answer is forgotten on the next launch. The prompt never appears over a confirmation, a filter you are typing, or an open panel.
+
+Accepting downloads the release archive, **verifies its SHA-256 against the `checksums.txt` published with the release**, and replaces the binary by an atomic rename. A release without a checksums file is refused rather than installed — this is a program that routinely runs as root, and the convenience is not worth an unverified binary.
+
+**If your copy came from a package manager, whytop does not update itself.** It says a newer version exists and gives you the `apt`/`dnf`/`pacman` command instead. That is not timidity: Debian Policy forbids a package modifying files outside dpkg's knowledge, dpkg would revert the replacement on the next upgrade anyway, and a self-updating binary is a blocker for getting into a distribution archive at all. The same applies inside a container image, where the answer is to pull a new image.
+
+To turn the check off entirely:
+
+```bash
+whytop -no-update-check           # this run
+export WHYTOP_NO_UPDATE_CHECK=1   # always
+```
+
+`NO_UPDATE_CHECK` and `DO_NOT_TRACK` are honoured too. It is the only network call whytop ever makes, it sends nothing but the request, and it is off on any machine that has already said it does not phone home.
 
 ## Security
 
