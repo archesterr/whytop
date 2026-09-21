@@ -11,7 +11,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
+          # go.mod is the single source of truth for the version, and its
+          # toolchain line names the patch release. check-latest asks for
+          # the newest release satisfying it rather than whatever the runner
+          # has cached, which matters here because govulncheck's verdict on
+          # the standard library is decided by the patch number: the same
+          # 1.26 minor can be clean or carry a dozen advisories.
           go-version-file: go.mod
+          check-latest: true
       - run: go mod tidy && git diff --exit-code go.mod go.sum
 
       # `go get` silently raises go.mod's go directive to whatever the new

@@ -1,6 +1,6 @@
 # Build whytop from source. For released images see Dockerfile.release, which
 # packages the binary goreleaser has already built.
-FROM golang:1.24-bookworm AS build
+FROM golang:1.26-bookworm AS build
 WORKDIR /src
 
 COPY go.mod go.sum ./

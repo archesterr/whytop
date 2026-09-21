@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Armin Hossein Pour <arminney77@gmail.com>
 Build-Depends: debhelper-compat (= 13),
                dh-golang,
-               golang-any,
+               golang-any (>= 2:1.26~),
                golang-github-aymanbagabas-go-osc52-dev,
                golang-github-charmbracelet-bubbletea-dev,
                golang-github-charmbracelet-colorprofile-dev,

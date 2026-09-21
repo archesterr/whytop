@@ -5,6 +5,13 @@
 # own source package, and a vendored copy would be outside that.
 export DH_GOLANG_IMPORT_PATH := github.com/archesterr/whytop
 
+# An archive build has no network, and go.mod names a toolchain: without
+# this the go command would try to download it and fail late, with an error
+# about a proxy rather than about the toolchain the suite ships. local means
+# "use the Go that is installed, or say plainly that it is too old", which
+# is what Build-Depends on golang-any (>= 2:1.26~) is there to guarantee.
+export GOTOOLCHAIN := local
+
 # The upstream version, without the Debian revision, is what whytop reports
 # as its own. A -1 or -1ubuntu2 suffix is packaging, not upstream, and
 # internal/update parses it back off anyway — but reporting it plainly is
