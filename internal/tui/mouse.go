@@ -79,6 +79,7 @@ func (m *model) clickHeader(x int) (tea.Model, tea.Cmd) {
 	if key == "" {
 		return *m, nil
 	}
+	m.resetScroll()
 	if key == m.sortKey {
 		m.sortDir = -m.sortDir
 		if m.sortDir == 0 {
@@ -118,7 +119,7 @@ func (m *model) clickRow(idx int) (tea.Model, tea.Cmd) {
 			break
 		}
 	}
-	start, end := windowRows(len(rows), selIdx, m.listRowsBudget())
+	start, end := m.window(len(rows), selIdx, m.listRowsBudget())
 	target := start + idx
 	if target < start || target >= end {
 		return *m, nil

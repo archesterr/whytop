@@ -205,6 +205,7 @@ func (m *model) useLocal() (tea.Model, tea.Cmd) {
 // process being killed.
 func (m *model) resetForHost() {
 	m.sel = ""
+	m.top = 0
 	m.detail = nil
 	m.confirm = nil
 	m.lockRank = nil

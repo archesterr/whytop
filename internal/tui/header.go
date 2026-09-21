@@ -48,16 +48,37 @@ func (m model) maxCoreRows() int {
 	}
 	// What is left of the panel's share of the screen once its fixed rows
 	// — the meters, the rule under the core band, and the frame's own four
-	// — have had theirs. The panel is worth height, and more of it than it
-	// used to take, but a machine with ninety-six cores must not push the
-	// process list off the bottom of a 24-row SSH session; cores that do
-	// not fit are packed tighter, and only then counted as hidden.
-	n := h*55/100 - 10
+	// — have had theirs. Cores that do not fit are packed tighter, and only
+	// then counted as hidden.
+	n := h*headerShare(h)/100 - 10
 	if n > 8 {
 		n = 8
 	}
 	if n < 1 {
 		n = 1
+	}
+	return n
+}
+
+// headerShare is the percentage of the screen the panel may spend, and it
+// falls as the window gets shorter.
+//
+// A share that is right on a full-screen window is wrong on a small one:
+// half of forty-four rows still leaves a usable process list, and half of
+// twenty-four leaves five rows of processes under a panel that has taken
+// everything else. The panel is the better use of height only while there
+// is height to spare; below that the list is what the tool is for.
+// It ramps rather than steps. A share that jumps at a threshold means the
+// panel can take more rows than the window just gained: growing a terminal
+// from 28 rows to 30 showed one process fewer, which is the opposite of
+// what making a window bigger is for.
+func headerShare(h int) int {
+	n := 40 + (h - 24)
+	if n < 40 {
+		return 40
+	}
+	if n > 55 {
+		return 55
 	}
 	return n
 }
@@ -283,7 +304,18 @@ func (m model) headerBody(inner int) []headerLine {
 	case 2:
 		groups = [][]string{m.meterLines(widths[0]), m.loadLines(widths[1])}
 	default:
-		groups = [][]string{append(m.meterLines(widths[0]), m.loadLines(widths[0])...)}
+		// Stacked in one column, the rows that get cut on a short window
+		// are the last ones, so the order is the order of what matters:
+		// the three machine meters, then the load figures, and the disk
+		// and network meters last. A full disk still reaches the verdict
+		// line; a machine's load has nowhere else to appear.
+		one := m.meterLines(widths[0])
+		if len(one) > 3 {
+			one = append(one[:3:3], append(m.loadLines(widths[0]), one[3:]...)...)
+		} else {
+			one = append(one, m.loadLines(widths[0])...)
+		}
+		groups = [][]string{one}
 	}
 
 	rows := 0
@@ -327,15 +359,26 @@ func (m model) headerBody(inner int) []headerLine {
 // headerBodyCap is how many interior rows the panel may draw and still
 // leave the list three rows, its two borders, the footer, and the terminal's
 // reserved last row.
-// headerBodyCap is how many interior rows the panel may draw and still
-// leave the list three rows, its two borders, the footer, and the terminal's
-// reserved last row.
+// headerBodyCap is how many interior rows the panel may draw: whichever is
+// smaller of what its share of the screen allows and what leaves the list
+// three rows, its two borders, the footer, and the terminal's reserved last
+// row.
+//
+// On a short window the share binds first, and the panel shows fewer rows
+// rather than showing all of them and leaving five rows of processes
+// underneath. Rows go from the bottom, so a cramped panel keeps the CPU and
+// memory meters and gives up the disk and network ones — which the verdict
+// line still speaks up about when they are worth knowing.
 func (m model) headerBodyCap() int {
 	h := m.height
 	if h <= 0 {
 		h = 30
 	}
-	return h - 11
+	byList := h - 11
+	if byShare := h*headerShare(h)/100 - 4; byShare < byList {
+		return byShare
+	}
+	return byList
 }
 
 // ruleJunctions is where the column dividers meet the rule below them, in

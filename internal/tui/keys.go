@@ -83,6 +83,10 @@ func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeySpace:
 		m.filter += " "
 	}
+	// Every keystroke here changes which rows exist, so the list goes back
+	// to its first row: a scroll position into the unfiltered list means
+	// nothing once the filter has narrowed it to eight rows.
+	m.resetScroll()
 	return m, nil
 }
 
@@ -140,6 +144,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.killSelected()
 	case "K":
 		m.showKernel = !m.showKernel
+		m.resetScroll()
 		if m.showKernel {
 			return m.showToast("Showing kernel threads ([kworker/…] and friends). K hides them again.", true)
 		}
@@ -159,6 +164,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.sortDir == 0 {
 			m.sortDir = -defaultSortDir(m.sortKey)
 		}
+		m.resetScroll()
 		m.relock()
 	case "t":
 		return m.toggleTree()
@@ -210,6 +216,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// take it off again without opening the filter editor first.
 		if m.filter != "" {
 			m.filter = ""
+			m.resetScroll()
 			return m.showToast("Filter cleared.", true)
 		}
 	case "enter":
@@ -222,6 +229,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // in the direction that column is worth reading.
 func (m *model) sortBy(key string) (tea.Model, tea.Cmd) {
 	m.sortKey, m.sortDir = key, defaultSortDir(key)
+	m.resetScroll()
 	m.relock()
 	return *m, nil
 }
@@ -240,6 +248,7 @@ func (m *model) cycleSort(delta int) (tea.Model, tea.Cmd) {
 
 func (m *model) toggleTree() (tea.Model, tea.Cmd) {
 	m.tree = !m.tree
+	m.resetScroll()
 	m.relock()
 	if m.tree {
 		return m.showToast("Tree view: processes under the ones that started them. t goes back to a flat list.", true)
@@ -305,6 +314,17 @@ func (m *model) moveSel(delta int) {
 		idx = len(rows) - 1
 	}
 	m.sel = rows[idx].key
+	// The viewport follows the cursor by the smallest amount that keeps it
+	// on screen. Paging moves it by a whole screen because the cursor did.
+	m.top = clampTop(m.top, idx, len(rows), max0(m.listRowsBudget()-1))
+}
+
+// resetScroll sends the list back to its first row. Anything that changes
+// which rows exist — a new sort, a filter, tree view, another host — makes
+// the old scroll position meaningless, and leaving it behind strands the
+// operator in the middle of a list they have not seen the top of.
+func (m *model) resetScroll() {
+	m.top = 0
 }
 
 // openSelected has a pointer receiver so it can mutate m in place (moveSel,

@@ -63,11 +63,15 @@ func TestHeaderPanelLinesAreExactlyTheWidth(t *testing.T) {
 // — but not the whole screen: a 128-core box must still leave a usable
 // process list on an ordinary terminal.
 func TestHeaderLeavesRoomForTheList(t *testing.T) {
-	for _, cores := range []int{4, 64, 128, 256} {
-		for _, h := range []int{24, 30, 40, 60} {
+	for _, cores := range []int{4, 12, 64, 128, 256} {
+		for _, h := range []int{20, 24, 28, 30, 40, 60} {
 			m := model{snap: headerSnap(cores), width: 120, height: h}
-			if got := m.headerHeight(); got > h*5/9 {
-				t.Errorf("cores=%d h=%d: the panel takes %d of %d rows", cores, h, got, h)
+			// The shorter the window, the smaller the share it may take:
+			// half of a 24-row session is a five-row process list.
+			limit := h * headerShare(h) / 100
+			if got := m.headerHeight(); got > limit {
+				t.Errorf("cores=%d h=%d: the panel takes %d of %d rows, over its %d-row share",
+					cores, h, got, h, limit)
 			}
 		}
 	}
