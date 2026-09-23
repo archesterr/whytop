@@ -36,6 +36,10 @@ type Snapshot struct {
 	FS    []FS
 	NICs  []NIC
 	TCP   TCP
+
+	// Throttles and Limits are local-only: see limits.go.
+	Throttles []Throttle
+	Limits    Limits
 }
 
 type CPU struct {
@@ -78,7 +82,12 @@ type Proc struct {
 	ReadBps, WriteBps float64 // block-layer bytes/s (root needed for other users)
 	IOHidden          bool    // true when /proc/<pid>/io was unreadable (not root, other user)
 	Threads           int32
-	Started           time.Time
+	// Throttled is the share of CPU periods the process's cgroup spent out
+	// of quota; FDs its open descriptors and FDLimit their soft limit (0
+	// when unread or unlimited).
+	Throttled    float64
+	FDs, FDLimit int
+	Started      time.Time
 
 	// Ports are the ports this process is listening on, and Estab is how
 	// many connections it currently has established. Answering "what is

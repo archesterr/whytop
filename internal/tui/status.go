@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -178,6 +179,64 @@ func (m model) findings() []finding {
 	}
 	if s.TCP.Available && s.TCP.RetransPct >= 5 {
 		add("tcp-retrans", false, toNet, "TCP retransmits %s%%", f1(s.TCP.RetransPct))
+	}
+
+	// Ceilings rather than usage: each of these takes a service down while
+	// CPU and memory look fine, which is exactly why top never warns of them.
+	for _, t := range s.Throttles {
+		if t.Pct < 25 {
+			continue
+		}
+		quota := ""
+		if t.Quota > 0 {
+			quota = fmt.Sprintf(", limit %s cores", trimFloat(t.Quota))
+		}
+		add("throttle:"+t.Cgroup, t.Pct >= 50, jump{filter: fmt.Sprintf("pid:%d", t.PID)},
+			"%s CPU-throttled %.0f%% of the time%s", t.Label, t.Pct, quota)
+	}
+	for _, p := range s.Procs {
+		if p.FDLimit > 0 && p.FDs*100 >= p.FDLimit*80 {
+			add(fmt.Sprintf("fd:%d", p.PID), p.FDs*100 >= p.FDLimit*95, jump{filter: fmt.Sprintf("pid:%d", p.PID)},
+				"%s at %d of %d open files", p.Name, p.FDs, p.FDLimit)
+		}
+	}
+	if l := s.Limits; l.FilesMax > 0 && l.FilesUsed*100 >= l.FilesMax*80 {
+		add("fd-sys", l.FilesUsed*100 >= l.FilesMax*95, jump{sortKey: "cpu", sortDir: -1},
+			"system file handles %d%% used", l.FilesUsed*100/l.FilesMax)
+	}
+	if l := s.Limits; l.ConntrackMax > 0 && l.ConntrackUsed*100 >= l.ConntrackMax*80 {
+		add("conntrack", l.ConntrackUsed*100 >= l.ConntrackMax*95, toNet,
+			"conntrack table %d%% full — new connections get dropped", l.ConntrackUsed*100/l.ConntrackMax)
+	}
+	if s.Limits.ListenOverflowPs >= 1 {
+		add("listen-drop", true, jump{sortKey: "port", sortDir: -1},
+			"%.0f connections/s dropped: listen queue full", s.Limits.ListenOverflowPs)
+	}
+	// CLOSE_WAIT means the peer hung up and this process never closed its
+	// end: a leak in the application, and the usual road to running out of
+	// file descriptors.
+	closeWait := map[int32]int{}
+	for _, c := range s.Conns {
+		if c.State == "CLOSE_WAIT" && c.PID > 0 {
+			closeWait[c.PID]++
+		}
+	}
+	pids := make([]int32, 0, len(closeWait))
+	for pid := range closeWait {
+		pids = append(pids, pid)
+	}
+	sort.Slice(pids, func(i, j int) bool { return closeWait[pids[i]] > closeWait[pids[j]] })
+	for _, pid := range pids {
+		n := closeWait[pid]
+		if n < 50 {
+			continue
+		}
+		name := ""
+		if i, ok := s.ByPID[pid]; ok {
+			name = s.Procs[i].Name
+		}
+		add(fmt.Sprintf("close-wait:%d", pid), n >= 500, jump{filter: fmt.Sprintf("pid:%d", pid)},
+			"%s leaking sockets (%d in CLOSE_WAIT)", name, n)
 	}
 
 	// Critical first, order within each severity preserved (roughly
@@ -357,4 +416,9 @@ func (m *model) jumpToFinding() (tea.Model, tea.Cmd) {
 	f := found[next]
 	m.findingLast = f.key
 	return m.applyJump(f)
+}
+
+// trimFloat prints 0.5 as "0.5" and 2 as "2".
+func trimFloat(v float64) string {
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", v), "0"), ".")
 }

@@ -251,6 +251,12 @@ func (m model) procCell(c procCol, p collect.Proc, sel bool, t treeRow) string {
 	case "state":
 		return cell(p.State, c.w, false, withBG(stateStyle(p.State), sel))
 	case "cpu":
+		// A throttled process's CPU% is capped by its quota, not by how
+		// much work it has: 19% can mean "starving". It is drawn as
+		// critical, whatever the number, with a mark that says why.
+		if p.Throttled >= 25 {
+			return cell("⏸"+f1(p.CPU), c.w, true, withBG(stCrit, sel))
+		}
 		return cell(f1(p.CPU), c.w, true, withBG(lvl(p.CPU, 50, 90), sel))
 	case "mem":
 		return memCell(p.RSS, m.snap.Mem.Total, c.w, sel)
