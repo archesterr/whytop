@@ -53,9 +53,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.hosts != nil {
-		return m.handleHostKey(msg)
-	}
 	if m.detail != nil {
 		return m.handleDetailKey(msg)
 	}
@@ -172,7 +169,7 @@ func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // kill the wrong process.
 //
 // Only what htop and top have no equivalent for gets a key of whytop's own,
-// and those are deliberately keys neither tool binds: @ for hosts, g to jump
+// and those are deliberately keys neither tool binds: g to jump
 // to the problem, L to lock the row order, space to pause.
 func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
@@ -275,8 +272,6 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return mm, cmd
 
 	// --- whytop's own, on keys htop and top leave free ---
-	case "@":
-		return m.openHosts()
 	case "g":
 		return m.jumpToFinding()
 	case "L":
@@ -347,9 +342,6 @@ func (m *model) toggleTree() (tea.Model, tea.Cmd) {
 // It confirms first, and it carries the start time the row was drawn from so
 // the signal lands on that process or on nothing — see actions.Signal.
 func (m *model) killSelected() (tea.Model, tea.Cmd) {
-	if mm, cmd, blocked := m.localOnly("Killing a process"); blocked {
-		return mm, cmd
-	}
 	rows := m.procRows()
 	var p collect.Proc
 	found := false
@@ -482,33 +474,8 @@ func (m *model) openSelected() (tea.Model, tea.Cmd) {
 	return *m, tea.Batch(m.loadExtraCmd(pid), m.loadJournalCmd(pid))
 }
 
-// localOnly refuses an action that would run on the wrong machine.
-//
-// Every action whytop can take — signals, systemctl, truncating a
-// descriptor — runs through internal/actions, which acts on the machine
-// whytop is running on. While a remote host is being viewed, the PID under
-// the cursor belongs to that host, and running a kill with it locally would
-// signal whatever process happens to hold that number here. That is not a
-// missing feature to be papered over with a best effort; it is the single
-// most dangerous thing this tool could do, so it is refused by name.
-func (m *model) localOnly(what string) (tea.Model, tea.Cmd, bool) {
-	if m.remote == nil {
-		return *m, nil, false
-	}
-	mm, cmd := m.showToast(what+" acts on the machine whytop is running on, so it is disabled while viewing "+
-		m.hostLabel()+". Press H to come back to localhost.", false)
-	return mm, cmd, true
-}
-
 func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "x", "X", "r", "e", "t", "c":
-		// Guarded together rather than one by one: a new action added
-		// below should have to opt *out* of this check, not remember to
-		// opt in.
-		if mm, cmd, blocked := m.localOnly(actionName(msg.String())); blocked {
-			return mm, cmd
-		}
 	}
 	switch msg.String() {
 	case "q":

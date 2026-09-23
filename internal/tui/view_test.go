@@ -171,7 +171,6 @@ func TestEveryFrameClosesItsBoxes(t *testing.T) {
 		"help":   func(m *model) { m.help = true },
 		"tree":   func(m *model) { m.tree = true },
 		"detail": func(m *model) { m.detail = &detailState{pid: 42} },
-		"hosts":  func(m *model) { m.hosts = &hostPanel{} },
 	}
 	for name, setup := range views {
 		for _, w := range []int{60, 80, 100, 150, 200} {

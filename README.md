@@ -1,6 +1,6 @@
 # whytop
 
-Live troubleshooting for Linux servers, in your terminal. One static binary, run straight over SSH: who owns a port, what a process is doing, what it spawned, and whether the box is starving on CPU, memory, disk or network. You can stop, kill or restart from the same screen.
+Live troubleshooting for Linux servers, in your terminal. One static binary that watches the machine it is installed on: who owns a port, what a process is doing, what it spawned, and whether the box is starving on CPU, memory, disk or network. You can stop, kill or restart from the same screen.
 
 No runtime dependencies, no network exposure, no browser. Works air-gapped.
 
@@ -12,7 +12,7 @@ Those tools show CPU and memory well and haven't needed to change much in 20+ ye
 - **Did the OOM killer just eat my process?** Every other tool leaves you to separately dig through `dmesg`/`journalctl -k` after the fact. whytop watches the kernel log continuously and surfaces a kill the moment it happens.
 - **Why is it actually slow — CPU, memory, or I/O?** PSI (pressure stall information) is the kernel's own modern answer to that question, and none of `top`/`htop`/`iotop` show it. whytop does, always visible.
 - **Is it slow, or is it capped?** A container on a half-core quota reads 50% CPU in `top` and looks healthy while it spends most of every scheduling period frozen — [a long-standing blind spot](https://github.com/htop-dev/htop/issues/1332). whytop reads the cgroup's own throttling counters, marks the process's CPU% with `⏸` and says how much of the time it was held back.
-- **What runs out before CPU and memory do?** Open-file limits, the listen queue, the conntrack table, sockets left in CLOSE_WAIT. None of them show in `top`, and each one takes a service down with the dashboards green. whytop turns each into a finding once it is near its ceiling — `api[4121] 1000/1024 open files`, `59 conn/s dropped, :9002 not accepting` — and `g` goes to the process responsible. (Local only: over SSH whytop reads what it can with shell commands and these are not among them yet.)
+- **What runs out before CPU and memory do?** Open-file limits, the listen queue, the conntrack table, sockets left in CLOSE_WAIT. None of them show in `top`, and each one takes a service down with the dashboards green. whytop turns each into a finding once it is near its ceiling — `api[4121] 1000/1024 open files`, `59 conn/s dropped, :9002 not accepting` — and `g` goes to the process responsible.
 - **What's listening on this port, and is it reachable from the network?** That's `ss`/`netstat` territory, not `top`'s. whytop flags wildcard binds (`0.0.0.0`) right in the list.
 - **What are this process's sockets, right now?** `iotop` is disk-only and needs root plus a kernel accounting flag most distros don't enable by default. whytop shows a process's own sockets, disk I/O, and its whole child tree together, and can stop/restart it without leaving the screen.
 
@@ -114,27 +114,9 @@ whytop takes the second route, via `ss`, because a monitoring tool has no busine
 - **No `ss` (iproute2) on the host, or no root:** the columns disappear rather than showing zeros. A process whose traffic simply wasn't visible reads `?`, never `0 B/s` — those are different answers and only one of them is safe to act on.
 - **TCP only.** UDP sockets carry no equivalent counters.
 
-## Remote hosts
+## Scope
 
-whytop opens on the machine you are sitting on. Press `H` for the host list, or start with `whytop -host deploy@web01`.
-
-```
- HOSTS
-● localhost                   this machine — no SSH
-  db01                        postgres@10.0.0.20   (ssh config)
-  web01                       deploy@10.0.0.11:2222   (ssh config)
-```
-
-Hosts come from `~/.ssh/config` (`-ssh-config`, or `c` in the panel, to read a different file), so the hosts you already maintain are simply there. `a` connects to one you type, as `host`, `user@host` or `user@host:port`.
-
-**Nothing is installed on the remote host.** whytop reads its `/proc` over the SSH session — no agent, no uploaded binary, nothing written to the far end. It works on any box you can already SSH into.
-
-- **Authentication is ssh-agent and keys only.** No passwords, so whytop never holds or stores a secret. If `ssh host` works, so does this.
-- **Host keys are verified against `~/.ssh/known_hosts`,** never blindly accepted. An unknown host is refused with its fingerprint, because the fix is to check it yourself rather than have whytop skip the check.
-- **Actions are disabled on remote hosts.** Stop, force-kill, restart, edit-unit and the file actions all run on the machine whytop is running on. A PID from a remote host would signal whatever process holds that number *here*, so those keys are refused by name and not even offered in the footer.
-- **Some columns are local-only for now**: systemd unit attribution, container IDs, and a process's open files, sockets and journal. The remote collector reads raw `/proc` rather than going through gopsutil, and those need more than `/proc` alone. The panel says so rather than showing zeros.
-
-Reading a host costs a handful of processes per refresh, not one per PID: the probe uses `tail -n +1` to read all of `/proc` in one go rather than forking `cat` a thousand times.
+whytop watches the machine it is installed on, and nothing else. It has no SSH client, no host list and no agent: to look at another server, SSH to it and run whytop there. Every action it offers — stop, kill, restart, emptying a file — acts on the machine in front of you, so there is never a question of which box a PID belongs to.
 
 ### The rest of the screen
 
@@ -180,7 +162,6 @@ Whytop has a few things those tools don't, and they sit on keys neither of them 
 |---|---|
 | `Enter` | open the process panel |
 | `g` | go to the next problem |
-| `@` | hosts — watch another box over SSH |
 | `L` | lock the row order |
 | `Space` | pause / resume sampling |
 | `m`  right-click | hand the mouse to the terminal, so it can select and copy text |
@@ -190,7 +171,6 @@ Whytop has a few things those tools don't, and they sit on keys neither of them 
 | In the process panel | Keys |
 |---|---|
 | | `Tab` switch between the tree and open files, `x` stop, `X` force kill, `r` restart unit, `e` edit its unit file, `j` reload journal, `f` pause/resume the live journal, `t` empty a file, `c` close a descriptor, `Esc` close |
-| In the hosts panel | `↑` `↓` select, `Enter` connect, `a` add a host, `c` change ssh config, `r` reload, `Esc` close |
 | Process panel | `Tab` switch between the process tree and open files, `x` stop (SIGTERM), `X` force kill (SIGKILL), `r` restart unit, `e` edit its unit file (asks to `daemon-reload` after), `j` reload journal, `f` pause/resume the live journal, `Esc` close |
 | Open files | `t` empty the file (reclaims its space, process keeps running), `c` close the descriptor |
 

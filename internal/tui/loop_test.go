@@ -47,15 +47,6 @@ func TestAReplacedLoopsPendingTickDoesNothing(t *testing.T) {
 	}
 }
 
-func TestAnErrorFromAReplacedLoopIsNotRetried(t *testing.T) {
-	m := initialModel(Options{})
-	old := m.loopGen()
-	m.refreshNow()
-	if _, cmd := m.Update(remoteErrMsg{host: "x", gen: old}); cmd != nil {
-		t.Error("an old loop's failure rescheduled it")
-	}
-}
-
 func TestAFilterYouCommitSelectsWhatItFound(t *testing.T) {
 	m := initialModel(Options{})
 	m.snap = &collect.Snapshot{ByPID: map[int32]int{1: 0, 4121: 1},

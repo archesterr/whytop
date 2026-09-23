@@ -353,14 +353,13 @@ func (c *Collector) collectNet(s *Snapshot, elapsed float64) {
 		return
 	}
 	cur := pc[0].Stats
-	FillTCP(&s.TCP, cur, c.prevTCP, elapsed)
+	fillTCP(&s.TCP, cur, c.prevTCP, elapsed)
 	c.prevTCP = cur
 }
 
-// FillTCP turns two readings of the kernel's Tcp counters into the rates
-// the status line and header use. Shared with the remote collector, which
-// reads the same counters out of /proc/net/snmp.
-func FillTCP(t *TCP, cur, prev map[string]int64, elapsed float64) {
+// fillTCP turns two readings of the kernel's Tcp counters into the rates
+// the status line and header use.
+func fillTCP(t *TCP, cur, prev map[string]int64, elapsed float64) {
 	t.Available = true
 	t.Established = cur["CurrEstab"]
 	if prev == nil || elapsed <= 0 {
@@ -381,26 +380,6 @@ func FillTCP(t *TCP, cur, prev map[string]int64, elapsed float64) {
 	if out := delta("OutSegs"); out > 0 {
 		t.RetransPct = delta("RetransSegs") / out * 100
 	}
-}
-
-// ParseSNMPTcp reads the Tcp: header and value lines out of /proc/net/snmp.
-func ParseSNMPTcp(snmp string) map[string]int64 {
-	lines := strings.Split(snmp, "\n")
-	for i := 0; i+1 < len(lines); i++ {
-		if !strings.HasPrefix(lines[i], "Tcp:") || !strings.HasPrefix(lines[i+1], "Tcp:") {
-			continue
-		}
-		keys, vals := strings.Fields(lines[i]), strings.Fields(lines[i+1])
-		out := map[string]int64{}
-		for j := 1; j < len(keys) && j < len(vals); j++ {
-			n, err := strconv.ParseInt(vals[j], 10, 64)
-			if err == nil {
-				out[keys[j]] = n
-			}
-		}
-		return out
-	}
-	return nil
 }
 
 func sub(a, b uint64) uint64 {

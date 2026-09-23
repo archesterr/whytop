@@ -26,7 +26,6 @@ Build-Depends: debhelper-compat (= 13),
                golang-github-tklauser-go-sysconf-dev,
                golang-github-tklauser-numcpus-dev,
                golang-github-xo-terminfo-dev,
-               golang-golang-x-crypto-dev,
                golang-golang-x-sys-dev
 Standards-Version: 4.7.0
 Homepage: https://github.com/archesterr/whytop
