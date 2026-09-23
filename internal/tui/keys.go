@@ -131,6 +131,22 @@ func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyEnter:
 		m.editing = false
+		// Filtering is how you point at a process — "/pid:4121", enter,
+		// k — so a committed filter selects its first match. Without this
+		// the list showed exactly the one process and k answered "No
+		// process selected".
+		m.resetScroll()
+		// A selection the filter kept stays where it is.
+		if rows := m.rowKeys(); m.filter != "" && len(rows) > 0 {
+			kept := false
+			for _, r := range rows {
+				kept = kept || r.key == m.sel
+			}
+			if !kept {
+				m.sel, m.selIdx = rows[0].key, 0
+			}
+		}
+		return m, nil
 	case tea.KeyBackspace:
 		if r := []rune(m.filter); len(r) > 0 {
 			m.filter = string(r[:len(r)-1])
@@ -273,7 +289,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case " ":
 		m.paused = !m.paused
 		if !m.paused {
-			return m, m.collectCmd(0)
+			return m, m.refreshNow()
 		}
 
 	// --- navigation ---

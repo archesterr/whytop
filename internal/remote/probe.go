@@ -19,6 +19,15 @@ package remote
 // bytes differs between gawk and mawk — the default on Debian — which is
 // exactly the kind of thing that works on the host you tested and not on
 // the one you needed it on.
+//
+// The sections after @@sockets are the ceilings — file handles, conntrack,
+// the listen queue, CPU quota, open files per process — and keep to the
+// same rule: every file is read by one tail, cat, grep or find for the
+// whole host, never one process per PID. The awk filters run on the
+// output of tail rather than on /proc directly because mawk gives up on
+// a file that vanishes between the glob and the open, and on a busy host
+// some always do. set -f comes late because the /proc globs above need
+// globbing and the cgroup paths below must not get it.
 const probeScript = `
 echo '@@meta'
 cat /proc/sys/kernel/hostname 2>/dev/null
@@ -45,5 +54,29 @@ echo '@@procio'
 tail -n +1 /proc/[0-9]*/io 2>/dev/null
 echo '@@sockets'
 ss -tinpHa 2>/dev/null
+echo '@@limits'
+tail -n +1 /proc/sys/fs/file-nr /proc/sys/net/netfilter/nf_conntrack_count /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null
+echo '@@snmp'
+cat /proc/net/snmp /proc/net/netstat 2>/dev/null
+echo '@@listen'
+grep -h ' 0A ' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+cg=$(tail -n +1 /proc/[0-9]*/cgroup 2>/dev/null | awk -F: '
+  /^==> / { split($0, a, "/"); pid = a[3]; next }
+  ($1 == "0" && $2 == "") || $2 ~ /(^|,)cpu(,|$)/ { print pid " " $2 " " $3 }')
+echo '@@cgroups'
+printf '%s\n' "$cg"
+fds=$(find /proc/[0-9]*/fd -mindepth 1 -maxdepth 1 2>/dev/null | awk -F/ '{ c[$3]++ } END { for (p in c) print p, c[p] }')
+echo '@@fds'
+printf '%s\n' "$fds"
+set -f
+echo '@@cpustat'
+files=$(printf '%s\n' "$cg" | awk '$3 != "/" && $3 != "" {
+  if ($2 == "") { d = "/sys/fs/cgroup" $3; print d "/cpu.stat"; print d "/cpu.max" }
+  else { for (i = 0; i < 2; i++) { d = (i ? "/sys/fs/cgroup/cpu" : "/sys/fs/cgroup/cpu,cpuacct") $3
+    print d "/cpu.stat"; print d "/cpu.cfs_quota_us"; print d "/cpu.cfs_period_us" } } }' | sort -u)
+[ -n "$files" ] && tail -n +1 $files 2>/dev/null
+echo '@@proclimits'
+files=$(printf '%s\n' "$fds" | awk '$2 >= 512 { print "/proc/" $1 "/limits" }')
+[ -n "$files" ] && tail -n +1 $files 2>/dev/null
 echo '@@end'
 `

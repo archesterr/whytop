@@ -125,7 +125,7 @@ func TestANewSampleReanchorsTheCursor(t *testing.T) {
 	gone.Procs = []collect.Proc{gone.Procs[0], gone.Procs[2]}
 	gone.ByPID = map[int32]int{1: 0, 43: 1}
 
-	got, _ := m.Update(snapMsg(gone))
+	got, _ := m.Update(snapMsg{snap: gone})
 	if sel := got.(model).sel; sel != "43" {
 		t.Errorf("after the sample that removed PID 42 the cursor is on %q, want 43", sel)
 	}

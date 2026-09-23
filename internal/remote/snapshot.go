@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,11 @@ type prev struct {
 	cpu   cpuTimes
 	cores []cpuTimes
 	procs map[int32]prevProc
+
+	tcp         map[string]int64
+	listenDrops uint64
+	haveListen  bool
+	throttle    map[string][2]uint64 // cgroup -> periods, throttled
 }
 
 type prevProc struct {
@@ -148,7 +154,9 @@ func (c *Client) build(out string, now time.Time) *collect.Snapshot {
 	cur := collect.ParseSS(sec["sockets"])
 	collect.ApplySockets(s.Procs, c.prevSock, cur, elapsed)
 	s.ConnsCollected = cur != nil
+	s.Conns = sockConns(cur)
 	c.prevSock = cur
+	c.limits(s, sec, p, &next, elapsed)
 	c.prev = &next
 	return s
 }
@@ -172,6 +180,137 @@ func sortProcs(procs []collect.Proc) {
 	for i := 1; i < len(procs); i++ {
 		for j := i; j > 0 && procs[j].PID < procs[j-1].PID; j-- {
 			procs[j], procs[j-1] = procs[j-1], procs[j]
+		}
+	}
+}
+
+// sockConns turns the ss reading into the connection list that the
+// findings, the header and a process's socket panel read. ss spells states
+// its own way (ESTAB, CLOSE-WAIT); they are respelled the way the local
+// collector reports them, so nothing downstream needs to know which
+// collector a snapshot came from. The peer address is the last field of
+// the key ParseSS builds.
+func sockConns(socks map[string]collect.SockStat) []collect.Conn {
+	out := make([]collect.Conn, 0, len(socks))
+	for key, sk := range socks {
+		state := strings.ReplaceAll(sk.State(), "-", "_")
+		if state == "ESTAB" {
+			state = "ESTABLISHED"
+		}
+		peer := key[strings.LastIndexByte(key, '|')+1:]
+		if state == "LISTEN" {
+			peer = ""
+		}
+		out = append(out, collect.Conn{Proto: "tcp", LPort: sk.LPort(), Remote: peer, State: state, PID: sk.PID()})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].LPort != out[j].LPort {
+			return out[i].LPort < out[j].LPort
+		}
+		return out[i].Remote < out[j].Remote
+	})
+	return out
+}
+
+// limits fills in the ceilings from the probe's later sections: the same
+// figures the local collector reads, parsed by the same code.
+func (c *Client) limits(s *collect.Snapshot, sec map[string]string, p *prev, next *prev, elapsed float64) {
+	lim := tailFiles(sec["limits"])
+	s.Limits.FilesUsed, s.Limits.FilesMax, _ = collect.ParseFileNr(lim["/proc/sys/fs/file-nr"])
+	s.Limits.ConntrackUsed = atoiDefault(strings.TrimSpace(lim["/proc/sys/net/netfilter/nf_conntrack_count"]))
+	s.Limits.ConntrackMax = atoiDefault(strings.TrimSpace(lim["/proc/sys/net/netfilter/nf_conntrack_max"]))
+
+	if tcp := collect.ParseSNMPTcp(sec["snmp"]); tcp != nil {
+		var before map[string]int64
+		if p != nil {
+			before = p.tcp
+		}
+		collect.FillTCP(&s.TCP, tcp, before, elapsed)
+		next.tcp = tcp
+	}
+	drops := collect.ListenDrops(sec["snmp"])
+	if p != nil && p.haveListen && elapsed > 0 && drops >= p.listenDrops {
+		s.Limits.ListenOverflowPs = float64(drops-p.listenDrops) / elapsed
+	}
+	next.listenDrops, next.haveListen = drops, true
+	s.Limits.FullListeners = collect.FullListeners(sec["listen"])
+
+	// Open descriptors per process, and the limit for the ones with enough
+	// of them for it to matter.
+	limits := tailFiles(sec["proclimits"])
+	for _, line := range strings.Split(sec["fds"], "\n") {
+		f := strings.Fields(line)
+		if len(f) != 2 {
+			continue
+		}
+		pid := int32(atoiDefault(f[0]))
+		i, ok := s.ByPID[pid]
+		if !ok {
+			continue
+		}
+		s.Procs[i].FDs = int(atoiDefault(f[1]))
+		if body, ok := limits["/proc/"+f[0]+"/limits"]; ok {
+			s.Procs[i].FDLimit = collect.FDLimit(body)
+		}
+	}
+
+	// CPU throttling: each process's cpu cgroup, and that group's counters.
+	groups := map[int32][2]string{} // pid -> path, controller
+	for _, line := range strings.Split(sec["cgroups"], "\n") {
+		f := strings.SplitN(line, " ", 3)
+		if len(f) != 3 {
+			continue
+		}
+		pid := int32(atoiDefault(f[0]))
+		// The cpu controller's line wins over the unified one on a hybrid
+		// host: v1's cpu hierarchy is where the quota is enforced.
+		if cur, ok := groups[pid]; ok && cur[1] != "" {
+			continue
+		}
+		groups[pid] = [2]string{f[2], f[1]}
+	}
+	stat := tailFiles(sec["cpustat"])
+	next.throttle = map[string][2]uint64{}
+	seen := map[string]float64{}
+	for i := range s.Procs {
+		pr := &s.Procs[i]
+		g, ok := groups[pr.PID]
+		if !ok || g[0] == "/" || g[0] == "" {
+			continue
+		}
+		if v, done := seen[g[0]]; done {
+			pr.Throttled = v
+			continue
+		}
+		seen[g[0]] = 0
+		dirs := []string{"/sys/fs/cgroup" + g[0]}
+		if g[1] != "" {
+			dirs = []string{"/sys/fs/cgroup/cpu,cpuacct" + g[0], "/sys/fs/cgroup/cpu" + g[0]}
+		}
+		for _, d := range dirs {
+			body, ok := stat[d+"/cpu.stat"]
+			if !ok {
+				continue
+			}
+			periods, throttled := collect.ParseCPUStat(body)
+			next.throttle[g[0]] = [2]uint64{periods, throttled}
+			if p == nil {
+				break
+			}
+			was, had := p.throttle[g[0]]
+			v, ok := collect.ThrottlePct(was[0], was[1], periods, throttled)
+			if !had || !ok {
+				break
+			}
+			seen[g[0]], pr.Throttled = v, v
+			if v > 0 {
+				quota := collect.QuotaV2(stat[d+"/cpu.max"])
+				if g[1] != "" {
+					quota = collect.QuotaV1(stat[d+"/cpu.cfs_quota_us"], stat[d+"/cpu.cfs_period_us"])
+				}
+				s.Throttles = append(s.Throttles, collect.Throttle{Cgroup: g[0], Label: collect.ThrottleLabel(pr), PID: pr.PID, Pct: v, Quota: quota})
+			}
+			break
 		}
 	}
 }

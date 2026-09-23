@@ -196,7 +196,7 @@ func (m *model) useLocal() (tea.Model, tea.Cmd) {
 	m.hosts = nil
 	m.snap = nil
 	m.resetForHost()
-	return *m, tea.Batch(m.collectCmd(0), func() tea.Msg { return clearToastMsg{gen: -1} })
+	return *m, tea.Batch(m.refreshNow(), func() tea.Msg { return clearToastMsg{gen: -1} })
 }
 
 // resetForHost drops everything that was about the previous machine. A

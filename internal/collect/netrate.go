@@ -88,6 +88,8 @@ func ParseSS(out string) map[string]SockStat { return parseSS(out) }
 // PID and byte counters for one socket.
 func (s SockStat) PID() int32              { return s.pid }
 func (s SockStat) Bytes() (uint64, uint64) { return s.rx, s.tx }
+func (s SockStat) State() string           { return s.state }
+func (s SockStat) LPort() uint32           { return s.lport }
 
 // ApplySockets folds a reading of ss into the process list: listening ports,
 // established-connection counts, and — when a previous reading is given —

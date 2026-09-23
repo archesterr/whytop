@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -68,7 +70,32 @@ type detailState struct {
 const toastTTL = 3 * time.Second
 const oomToastTTL = 12 * time.Second // an OOM kill matters more than a routine action result
 
-type snapMsg *collect.Snapshot
+// snapMsg is one reading, tagged with the refresh loop that took it.
+type snapMsg struct {
+	snap *collect.Snapshot
+	gen  int64
+}
+
+// collectLoop keeps exactly one refresh loop alive.
+//
+// Each reading schedules the next, so anything that wants a reading *now*
+// — a kill that succeeded, a host just connected, unpausing — used to start
+// a second chain beside the first, and nothing ever stopped the first.
+// Two loops sample milliseconds apart, so every rate is computed over a few
+// milliseconds and reads 0 or nonsense; the collection cost doubles with
+// every kill; and Collector.Collect, which must not run concurrently, did.
+//
+// gen names the live loop: starting a new one bumps it, and a tick or a
+// reading from an older loop is dropped where it lands. mu makes sure
+// that, even so, two readings are never taken at once — a stale loop may
+// already be halfway through one when the new loop starts.
+//
+// It is a pointer because model is copied on every update and all copies
+// must agree on which loop is live.
+type collectLoop struct {
+	mu  sync.Mutex
+	gen atomic.Int64
+}
 type extraMsg struct {
 	pid            int32
 	extra          collect.Extra
@@ -139,6 +166,9 @@ type model struct {
 	// so they can select and copy text. See toggleMouse.
 	mouseOff bool
 
+	// loop is the one live refresh loop; see collectLoop.
+	loop *collectLoop
+
 	// filterFromJump marks a filter that g or a click on a finding put
 	// there, rather than one the operator typed. The two look the same on
 	// screen and differ under "/": see handleListKey.
@@ -197,6 +227,7 @@ func initialModel(opt Options) model {
 		fullPath: true,
 		deepPID:  opt.PID, deepPort: opt.Port,
 		lastOOMCheck: time.Now(),
+		loop:         &collectLoop{},
 	}
 }
 
@@ -238,17 +269,42 @@ func (m model) pollOOMCmd(after time.Duration) tea.Cmd {
 }
 
 func (m model) collectCmd(after time.Duration) tea.Cmd {
-	col, rc := m.col, m.remote
+	col, rc, loop := m.col, m.remote, m.loop
+	gen := m.loopGen()
 	return tea.Tick(after, func(time.Time) tea.Msg {
+		if loop != nil {
+			if loop.gen.Load() != gen {
+				return nil // a newer loop has taken over; this one ends here
+			}
+			loop.mu.Lock()
+			defer loop.mu.Unlock()
+		}
 		if rc != nil {
 			s, err := rc.Snapshot(probeTimeout)
 			if err != nil {
-				return remoteErrMsg{host: rc.Host().Label(), err: err}
+				return remoteErrMsg{host: rc.Host().Label(), err: err, gen: gen}
 			}
-			return snapMsg(s)
+			return snapMsg{snap: s, gen: gen}
 		}
-		return snapMsg(col.Collect())
+		return snapMsg{snap: col.Collect(), gen: gen}
 	})
+}
+
+// refreshNow replaces the refresh loop with one that reads immediately.
+// Anything that wants fresh numbers now calls this, never collectCmd(0),
+// which would run a second loop beside the one already going.
+func (m model) refreshNow() tea.Cmd {
+	if m.loop != nil {
+		m.loop.gen.Add(1)
+	}
+	return m.collectCmd(0)
+}
+
+func (m model) loopGen() int64 {
+	if m.loop == nil {
+		return 0
+	}
+	return m.loop.gen.Load()
 }
 
 // probeTimeout bounds one remote reading. It is generous compared with the
@@ -263,6 +319,7 @@ const probeTimeout = 20 * time.Second
 type remoteErrMsg struct {
 	host string
 	err  error
+	gen  int64
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -279,7 +336,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 
 	case snapMsg:
-		m.snap = msg
+		if msg.gen != m.loopGen() {
+			// From a loop that has been replaced — possibly one reading a
+			// host that has since been left. Its numbers are not this
+			// screen's, and scheduling its next tick would revive it.
+			return m, nil
+		}
+		m.snap = msg.snap
 		m.reanchorSel()
 		var cmds []tea.Cmd
 		if dc := m.resolveDeepLink(); dc != nil {
@@ -335,7 +398,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, toastCmd := m.showToast(msg.text, msg.ok)
 		cmds := []tea.Cmd{toastCmd}
 		if msg.ok {
-			cmds = append(cmds, m.collectCmd(0))
+			cmds = append(cmds, m.refreshNow())
 		}
 		if msg.openPID > 0 {
 			m.detail = &detailState{pid: msg.openPID, follow: true}
@@ -373,10 +436,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hosts, m.hostErr, m.snap = nil, "", nil
 		m.resetForHost()
 		_, toast := m.showToast("Connected to "+msg.host.Label(), true)
-		return m, tea.Batch(m.collectCmd(0), toast)
+		return m, tea.Batch(m.refreshNow(), toast)
 
 	case remoteErrMsg:
-		if m.remote == nil || m.remote.Host().Label() != msg.host {
+		if msg.gen != m.loopGen() || m.remote == nil || m.remote.Host().Label() != msg.host {
 			return m, nil // a stale reading from a host we already left
 		}
 		wait := m.opt.Interval
