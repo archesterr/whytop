@@ -31,3 +31,16 @@ func TestFDLimitReadsTheSoftLimit(t *testing.T) {
 		t.Errorf("unlimited read as %d, want 0 (no limit)", got)
 	}
 }
+
+func TestFullListenersNamesTheSaturatedPort(t *testing.T) {
+	table := `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000:2329 00000000:0000 0A 00000000:00000002 00:00000000 00000000     0        0 1
+   3: 00000000:0050 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 4
+   1: 00000000:2328 00000000:0000 0A 00000000:00000009 00:00000000 00000000     0        0 2
+   2: 0100007F:2328 0100007F:9C40 01 00000000:00000000 00:00000000 00000000     0        0 3
+`
+	got := fullListeners(table)
+	if len(got) != 2 || got[0] != 9000 || got[1] != 9001 {
+		t.Errorf("got %v, want [9000 9001]: listeners with a queue, deepest first, idle :80 left out", got)
+	}
+}

@@ -239,12 +239,12 @@ func TestCeilingsTopNeverShowsAreFindings(t *testing.T) {
 		s.Conns = append(s.Conns, collect.Conn{Proto: "tcp", State: "CLOSE_WAIT", PID: 11})
 	}
 	want := map[string]string{
-		"throttle:/k/pod": "payments.service CPU-throttled 80% of the time, limit 0.5 cores",
-		"fd:10":           "api at 1000 of 1024 open files",
-		"fd-sys":          "system file handles 96% used",
-		"conntrack":       "conntrack table 85% full — new connections get dropped",
-		"listen-drop":     "12 connections/s dropped: listen queue full",
-		"close-wait:11":   "leaky leaking sockets (60 in CLOSE_WAIT)",
+		"throttle:/k/pod": "payments.service throttled 80% of 0.5-core limit",
+		"fd:10":           "api[10] 1000/1024 open files",
+		"fd-sys":          "file handles 96% used",
+		"conntrack":       "conntrack 85% full",
+		"listen-drop":     "12 conn/s dropped, listen queue full",
+		"close-wait:11":   "leaky[11] 60 sockets in CLOSE_WAIT",
 	}
 	got := map[string]finding{}
 	for _, f := range (model{snap: s}).findings() {

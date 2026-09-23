@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -43,6 +44,9 @@ type Limits struct {
 	// ListenOverflowPs is connections per second dropped because a
 	// listening socket's accept queue was full.
 	ListenOverflowPs float64
+	// FullListeners are the listening ports with connections waiting to be
+	// accepted, deepest queue first — where the drops above are happening.
+	FullListeners []uint32
 }
 
 type cpuStat struct{ periods, throttled uint64 }
@@ -192,6 +196,54 @@ func (c *Collector) collectLimits(s *Snapshot, elapsed float64) {
 		s.Limits.ListenOverflowPs = float64(cur-prev) / elapsed
 	}
 	c.prevListenDrop, c.havePrevListen = cur, true
+	s.Limits.FullListeners = fullListeners(readString("/proc/net/tcp") + readString("/proc/net/tcp6"))
+}
+
+// fullListeners reads the accept queues out of /proc/net/tcp. For a socket
+// in LISTEN (state 0A) the rx_queue field is how many connections have
+// completed the handshake and are waiting for the program to accept() them.
+// The backlog they are measured against is not in this file (ss gets it
+// over netlink), so this cannot say "full" — but a healthy server accepts
+// as fast as connections arrive and shows 0. When the kernel is dropping at
+// a listener, that listener has the deepest queue, so they are returned
+// deepest first.
+func fullListeners(table string) []uint32 {
+	type q struct {
+		port  uint32
+		depth uint64
+	}
+	var qs []q
+	seen := map[uint32]bool{}
+	for _, line := range strings.Split(table, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 5 || f[3] != "0A" {
+			continue
+		}
+		_, rxs, ok := strings.Cut(f[4], ":")
+		if !ok {
+			continue
+		}
+		rx, _ := strconv.ParseUint(rxs, 16, 64)
+		if rx == 0 {
+			continue
+		}
+		i := strings.LastIndexByte(f[1], ':')
+		if i < 0 {
+			continue
+		}
+		port, err := strconv.ParseUint(f[1][i+1:], 16, 32)
+		if err != nil || seen[uint32(port)] {
+			continue
+		}
+		seen[uint32(port)] = true
+		qs = append(qs, q{uint32(port), rx})
+	}
+	sort.SliceStable(qs, func(i, j int) bool { return qs[i].depth > qs[j].depth })
+	out := make([]uint32, len(qs))
+	for i, x := range qs {
+		out[i] = x.port
+	}
+	return out
 }
 
 func readString(path string) string {
@@ -266,5 +318,5 @@ func throttleLabel(p *Proc) string {
 	case p.Container != "":
 		return p.Runtime + " " + p.Container
 	}
-	return p.Name
+	return fmt.Sprintf("%s[%d]", p.Name, p.PID)
 }

@@ -683,9 +683,13 @@ func (m model) identLines(w int) []string {
 		if closeWait > 0 {
 			tcp += "  " + lvl(float64(closeWait), 50, 500).Render(strconv.Itoa(closeWait)) + stMuted.Render(" close-wait")
 		}
-		tcp += "  " + lvl(s.TCP.RetransPct, 2, 5).Render(f1(s.TCP.RetransPct)+"%") + stMuted.Render(" retrans")
+		// Retransmits only when there are some: "0% retrans" is a phrase
+		// to read past on every glance at a healthy box.
+		if s.TCP.RetransPct >= 1 {
+			tcp += "  " + lvl(s.TCP.RetransPct, 2, 5).Render(f1(s.TCP.RetransPct)+"%") + stMuted.Render(" retrans")
+		}
 		if s.Limits.ListenOverflowPs >= 1 {
-			tcp += "  " + stCrit.Render(fmt.Sprintf("%.0f/s", s.Limits.ListenOverflowPs)) + stMuted.Render(" refused")
+			tcp += "  " + stCrit.Render(fmt.Sprintf("%.0f", s.Limits.ListenOverflowPs)) + stMuted.Render(" drop/s")
 		}
 		add("TCP", tcp)
 	}
