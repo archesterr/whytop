@@ -18,6 +18,13 @@ func bytesFmt(n float64) string {
 		n /= 1024
 		i++
 	}
+	// 1000-1023 of a unit would print four digits and overflow every
+	// fixed-width column it lands in ("1002 MiB/s" is ten characters in a
+	// nine-character cell). Roll it over: "1.0 GiB" says the same thing.
+	if n >= 999.5 && i < len(units)-1 {
+		n /= 1024
+		i++
+	}
 	if n < 10 {
 		return fmt.Sprintf("%.1f %s", n, units[i])
 	}

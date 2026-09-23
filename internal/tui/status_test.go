@@ -225,3 +225,37 @@ func TestJumpWalksEveryFindingInTurn(t *testing.T) {
 		}
 	}
 }
+
+func TestCeilingsTopNeverShowsAreFindings(t *testing.T) {
+	s := &collect.Snapshot{ByPID: map[int32]int{}}
+	s.Procs = []collect.Proc{
+		{PID: 10, Name: "api", FDs: 1000, FDLimit: 1024},
+		{PID: 11, Name: "leaky"},
+	}
+	s.ByPID[10], s.ByPID[11] = 0, 1
+	s.Throttles = []collect.Throttle{{Cgroup: "/k/pod", Label: "payments.service", PID: 10, Pct: 80, Quota: 0.5}}
+	s.Limits = collect.Limits{FilesUsed: 96, FilesMax: 100, ConntrackUsed: 85, ConntrackMax: 100, ListenOverflowPs: 12}
+	for i := 0; i < 60; i++ {
+		s.Conns = append(s.Conns, collect.Conn{Proto: "tcp", State: "CLOSE_WAIT", PID: 11})
+	}
+	want := map[string]string{
+		"throttle:/k/pod": "payments.service throttled 80% of 0.5-core limit",
+		"fd:10":           "api[10] 1000/1024 open files",
+		"fd-sys":          "file handles 96% used",
+		"conntrack":       "conntrack 85% full",
+		"listen-drop":     "12 conn/s dropped, listen queue full",
+		"close-wait:11":   "leaky[11] 60 sockets in CLOSE_WAIT",
+	}
+	got := map[string]finding{}
+	for _, f := range (model{snap: s}).findings() {
+		got[f.key] = f
+	}
+	for k, text := range want {
+		if got[k].text != text {
+			t.Errorf("%s: got %q, want %q", k, got[k].text, text)
+		}
+	}
+	if got["fd:10"].to.filter != "pid:10" {
+		t.Errorf("g on the fd finding should land on the process, got filter %q", got["fd:10"].to.filter)
+	}
+}

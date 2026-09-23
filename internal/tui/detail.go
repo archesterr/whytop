@@ -82,6 +82,11 @@ func (m model) renderDetail(w, h int) string {
 	if p.Container != "" {
 		facts = append(facts, [2]string{"Container", stAccent.Render(safeText(p.Container)) + " " + stMuted.Render(safeText(p.Runtime))})
 	}
+	// Only when it is happening: a CPU% that looks modest next to a
+	// throttled cgroup is the process waiting for quota, not idle.
+	if p.Throttled >= 1 {
+		facts = append(facts, [2]string{"Throttled", stWarn.Render(fmt.Sprintf("%.0f%% of CPU periods", p.Throttled))})
+	}
 	if d.loaded && d.extra.OOMScore != "" {
 		facts = append(facts, [2]string{"OOM score", d.extra.OOMScore + " (adjust " + d.extra.OOMAdj + ")"})
 	}

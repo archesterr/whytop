@@ -657,10 +657,42 @@ func (m model) identLines(w int) []string {
 	add := func(label, value string) {
 		out = append(out, withPad(stLabel.Render(label), factLabelW)+truncateANSI(value, max0(w-factLabelW)))
 	}
-	add("Uptime", stPlain.Render(dur(s.Uptime)))
-	add("Cores", stPlain.Render(strconv.Itoa(s.CPU.Cores)))
-	add("OS", stPlain.Render(safeText(s.OS)))
-	add("Kernel", stMuted.Render(safeText(s.Kernel)))
+	// Uptime, cores, distribution and kernel are what you confirm once, not
+	// what you watch, so they share two rows. The rows that freed up go to
+	// ceilings — file handles and TCP state — which top has never shown
+	// and which are what actually take a service down while CPU and memory
+	// look fine.
+	add("Uptime", stPlain.Render(dur(s.Uptime))+stMuted.Render(fmt.Sprintf("  %d cores", s.CPU.Cores)))
+	sys := safeText(s.OS)
+	if s.Kernel != "" {
+		sys += stMuted.Render("  " + safeText(s.Kernel))
+	}
+	add("System", sys)
+	if l := s.Limits; l.FilesMax > 0 {
+		pct := float64(l.FilesUsed) / float64(l.FilesMax) * 100
+		add("Files", lvl(pct, 70, 90).Render(countFmt(l.FilesUsed))+stMuted.Render(" of "+countFmt(l.FilesMax)+" handles"))
+	}
+	if s.TCP.Available {
+		closeWait := 0
+		for _, c := range s.Conns {
+			if c.State == "CLOSE_WAIT" {
+				closeWait++
+			}
+		}
+		tcp := stPlain.Render(strconv.FormatInt(s.TCP.Established, 10)) + stMuted.Render(" estab")
+		if closeWait > 0 {
+			tcp += "  " + lvl(float64(closeWait), 50, 500).Render(strconv.Itoa(closeWait)) + stMuted.Render(" close-wait")
+		}
+		// Retransmits only when there are some: "0% retrans" is a phrase
+		// to read past on every glance at a healthy box.
+		if s.TCP.RetransPct >= 1 {
+			tcp += "  " + lvl(s.TCP.RetransPct, 2, 5).Render(f1(s.TCP.RetransPct)+"%") + stMuted.Render(" retrans")
+		}
+		if s.Limits.ListenOverflowPs >= 1 {
+			tcp += "  " + stCrit.Render(fmt.Sprintf("%.0f", s.Limits.ListenOverflowPs)) + stMuted.Render(" drop/s")
+		}
+		add("TCP", tcp)
+	}
 	// Without root, per-process I/O for other users' processes reads as
 	// "hidden" rather than as zero. That is a property of the view, not of
 	// the machine, so it belongs with the facts about the view.
@@ -789,4 +821,17 @@ func lpadPlain(s string, w int) string {
 		return strings.Repeat(" ", n) + s
 	}
 	return s
+}
+
+// countFmt shortens a count for a narrow cell: 1234 is "1.2k", 1645588 "1.6M".
+func countFmt(n uint64) string {
+	switch {
+	case n >= 1_000_000:
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(n)/1e6), ".0") + "M"
+	case n >= 10_000:
+		return strconv.FormatUint(n/1000, 10) + "k"
+	case n >= 1000:
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(n)/1e3), ".0") + "k"
+	}
+	return strconv.FormatUint(n, 10)
 }

@@ -38,6 +38,10 @@ type Collector struct {
 	prevTCP  map[string]int64
 	users    map[uint32]userEnt
 	hung     map[string]bool
+
+	prevThrottle   map[string]cpuStat
+	prevListenDrop uint64
+	havePrevListen bool
 }
 
 type userEnt struct {
@@ -91,6 +95,9 @@ func (c *Collector) Collect() *Snapshot {
 	c.collectDisks(s, elapsed)
 	c.collectFS(s)
 	c.collectNet(s, elapsed)
+	c.collectThrottle(s)
+	collectFDs(s)
+	c.collectLimits(s, elapsed)
 
 	c.prevAt = now
 	return s

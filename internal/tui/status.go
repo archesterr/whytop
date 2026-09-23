@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -84,6 +85,78 @@ func (m model) findings() []finding {
 		toNet     = jump{sortKey: "net", sortDir: -1}
 	)
 
+	// Ceilings rather than usage: each of these takes a service down while
+	// CPU and memory look fine, which is exactly why top never warns of them.
+	// They come first because they are failures already happening to
+	// users — refused connections, "too many open files" — where the usage
+	// findings below are causes still to be traced.
+	//
+	// Processes are named with their PID: "python3 at 993 of 1024 open
+	// files" is no help on a box running forty python3s.
+	if s.Limits.ListenOverflowPs >= 1 {
+		// Name the listener when the kernel says which queue is full, and
+		// go straight to it: sorting by port would land on whichever
+		// service has the lowest one, which is rarely the one in trouble.
+		if full := s.Limits.FullListeners; len(full) > 0 {
+			add("listen-drop", true, jump{filter: fmt.Sprintf("port:%d", full[0])},
+				"%.0f conn/s dropped, :%d not accepting", s.Limits.ListenOverflowPs, full[0])
+		} else {
+			add("listen-drop", true, jump{sortKey: "port", sortDir: -1},
+				"%.0f conn/s dropped, listen queue full", s.Limits.ListenOverflowPs)
+		}
+	}
+	if l := s.Limits; l.ConntrackMax > 0 && l.ConntrackUsed*100 >= l.ConntrackMax*80 {
+		add("conntrack", l.ConntrackUsed*100 >= l.ConntrackMax*95, toNet,
+			"conntrack %d%% full", l.ConntrackUsed*100/l.ConntrackMax)
+	}
+	for _, p := range s.Procs {
+		if p.FDLimit > 0 && p.FDs*100 >= p.FDLimit*80 {
+			add(fmt.Sprintf("fd:%d", p.PID), p.FDs*100 >= p.FDLimit*95, jump{filter: fmt.Sprintf("pid:%d", p.PID)},
+				"%s[%d] %d/%d open files", p.Name, p.PID, p.FDs, p.FDLimit)
+		}
+	}
+	// CLOSE_WAIT means the peer hung up and this process never closed its
+	// end: a leak in the application, and the usual road to running out of
+	// file descriptors.
+	closeWait := map[int32]int{}
+	for _, c := range s.Conns {
+		if c.State == "CLOSE_WAIT" && c.PID > 0 {
+			closeWait[c.PID]++
+		}
+	}
+	pids := make([]int32, 0, len(closeWait))
+	for pid := range closeWait {
+		pids = append(pids, pid)
+	}
+	sort.Slice(pids, func(i, j int) bool { return closeWait[pids[i]] > closeWait[pids[j]] })
+	for _, pid := range pids {
+		n := closeWait[pid]
+		if n < 50 {
+			continue
+		}
+		name := ""
+		if i, ok := s.ByPID[pid]; ok {
+			name = s.Procs[i].Name
+		}
+		add(fmt.Sprintf("close-wait:%d", pid), n >= 500, jump{filter: fmt.Sprintf("pid:%d", pid)},
+			"%s[%d] %d sockets in CLOSE_WAIT", name, pid, n)
+	}
+
+	if l := s.Limits; l.FilesMax > 0 && l.FilesUsed*100 >= l.FilesMax*80 {
+		add("fd-sys", l.FilesUsed*100 >= l.FilesMax*95, jump{sortKey: "cpu", sortDir: -1},
+			"file handles %d%% used", l.FilesUsed*100/l.FilesMax)
+	}
+	for _, t := range s.Throttles {
+		if t.Pct < 25 {
+			continue
+		}
+		quota := ""
+		if t.Quota > 0 {
+			quota = fmt.Sprintf(" of %s-core limit", trimFloat(t.Quota))
+		}
+		add("throttle:"+t.Cgroup, t.Pct >= 50, jump{filter: fmt.Sprintf("pid:%d", t.PID)},
+			"%s throttled %.0f%%%s", t.Label, t.Pct, quota)
+	}
 	// Processes stuck in uninterruptible sleep are the most actionable
 	// signal on the whole screen: something is wedged on I/O right now.
 	blocked, zombies := 0, 0
@@ -357,4 +430,9 @@ func (m *model) jumpToFinding() (tea.Model, tea.Cmd) {
 	f := found[next]
 	m.findingLast = f.key
 	return m.applyJump(f)
+}
+
+// trimFloat prints 0.5 as "0.5" and 2 as "2".
+func trimFloat(v float64) string {
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", v), "0"), ".")
 }
