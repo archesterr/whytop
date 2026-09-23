@@ -1,22 +1,15 @@
 module github.com/archesterr/whytop
 
-// Go 1.26 is required by golang.org/x/crypto v0.56.0, and that version is
-// not optional: it is where the last of eight advisories in the SSH client
-// are fixed, all of them reachable from every connection whytop makes.
+// Go 1.26 is required by golang.org/x/sys v0.48.0 and x/text v0.42.0.
 //
-// An earlier commit pinned x/crypto to v0.44.0 for the opposite reason —
-// "nothing in the SSH client needs a newer language, and making people
-// building from source install a brand-new toolchain to run a monitoring
-// tool is a real cost for no benefit". That was right when it was written.
-// It stopped being right when the advisories landed, and it is the reason
-// this looks like drift that wants reverting. It is not: dropping back to
-// v0.44.0 reinstates an auth bypass on @revoked known_hosts entries and a
-// FIDO/U2F presence check that can be skipped. v0.55.0 is the last release
-// on Go 1.25 and still carries two of the eight.
+// It first came in with golang.org/x/crypto v0.56.0, which fixed eight
+// advisories in the SSH client. The SSH client has since been removed —
+// whytop watches only the machine it is installed on — and x/crypto with
+// it, but x/sys and x/text had moved to 1.26 in the meantime, and holding
+// them back means holding back the syscall and Unicode tables for no gain.
 //
-// The cost is real and is being paid deliberately: Debian trixie ships Go
-// 1.24, so this is also one of the two things blocking the archive route.
-// See docs/PACKAGING.md.
+// The cost is still real: Debian trixie ships Go 1.24, so this is one of
+// the two things blocking the archive route. See docs/PACKAGING.md.
 go 1.26.0
 
 toolchain go1.26.8
@@ -26,7 +19,6 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/muesli/termenv v0.16.0
 	github.com/shirou/gopsutil/v4 v4.24.12
-	golang.org/x/crypto v0.56.0
 )
 
 require (

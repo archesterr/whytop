@@ -93,7 +93,6 @@ var (
 	stTreeLine   = lipgloss.NewStyle().Foreground(colTreeLine)
 	stFilterChip = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colPort)
 	stFilterOn   = lipgloss.NewStyle().Foreground(colPort)
-	stRemote     = lipgloss.NewStyle().Bold(true).Foreground(colBg).Background(colIO)
 	// The frame is deliberately dim. Borders are there to group things, and
 	// a border bright enough to compete with the data it contains has
 	// stopped doing its job.

@@ -410,9 +410,6 @@ func (m model) renderHeaderPanel(w int) string {
 	if m.opt.Version != "" {
 		title += " " + m.opt.Version
 	}
-	if m.remote != nil {
-		title += "  ssh " + safeText(m.hostLabel())
-	}
 	title += "  " + safeText(s.Host)
 
 	clock := time.Now().Format("15:04:05")
@@ -696,7 +693,7 @@ func (m model) identLines(w int) []string {
 	// Without root, per-process I/O for other users' processes reads as
 	// "hidden" rather than as zero. That is a property of the view, not of
 	// the machine, so it belongs with the facts about the view.
-	if !s.Root && m.remote == nil {
+	if !s.Root {
 		add("Access", stWarn.Render("limited")+stMuted.Render(" — sudo for full I/O"))
 	}
 	return out
@@ -714,7 +711,7 @@ func (m model) identRow(w int) string {
 	if s.Kernel != "" {
 		parts = append(parts, stLabel.Render("Kernel ")+stMuted.Render(safeText(s.Kernel)))
 	}
-	if !s.Root && m.remote == nil {
+	if !s.Root {
 		parts = append(parts, stWarn.Render("limited — sudo for full I/O"))
 	}
 	return truncateANSI(strings.Join(parts, stFaint.Render("  ·  ")), w)

@@ -39,9 +39,6 @@ func (m model) renderDetail(w, h int) string {
 	if p.Unit != "" {
 		title += "  " + stAccent.Render(safeText(unitName(p.Unit)))
 	}
-	if d.remote {
-		title += "  " + stWarn.Render("remote — open files, sockets and journal are not read over SSH")
-	}
 	b.WriteString(title + "\n")
 
 	parent := "–"

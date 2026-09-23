@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -14,7 +16,6 @@ import (
 
 	"github.com/archesterr/whytop/internal/actions"
 	"github.com/archesterr/whytop/internal/collect"
-	"github.com/archesterr/whytop/internal/remote"
 )
 
 // Options configures a Run.
@@ -23,11 +24,6 @@ type Options struct {
 	Version  string
 	PID      int
 	Port     int
-	// Host opens straight onto a remote host instead of this machine.
-	Host string
-	// SSHConfig overrides ~/.ssh/config, for people who keep a separate
-	// file for production.
-	SSHConfig string
 }
 
 type confirmState struct {
@@ -55,9 +51,6 @@ type detailState struct {
 	focus   detailFocus
 	fileSel int
 	journal string
-	// remote marks a panel whose per-process detail could not be read,
-	// because the process lives on another machine.
-	remote bool
 	// follow re-reads the journal on every refresh tick, which is what
 	// `journalctl -u <unit> -f` gives you at a shell. It's on by default:
 	// you open a process's panel to watch what it's doing, and a log that
@@ -68,13 +61,37 @@ type detailState struct {
 const toastTTL = 3 * time.Second
 const oomToastTTL = 12 * time.Second // an OOM kill matters more than a routine action result
 
-type snapMsg *collect.Snapshot
+// snapMsg is one reading, tagged with the refresh loop that took it.
+type snapMsg struct {
+	snap *collect.Snapshot
+	gen  int64
+}
+
+// collectLoop keeps exactly one refresh loop alive.
+//
+// Each reading schedules the next, so anything that wants a reading *now*
+// — a kill that succeeded, a host just connected, unpausing — used to start
+// a second chain beside the first, and nothing ever stopped the first.
+// Two loops sample milliseconds apart, so every rate is computed over a few
+// milliseconds and reads 0 or nonsense; the collection cost doubles with
+// every kill; and Collector.Collect, which must not run concurrently, did.
+//
+// gen names the live loop: starting a new one bumps it, and a tick or a
+// reading from an older loop is dropped where it lands. mu makes sure
+// that, even so, two readings are never taken at once — a stale loop may
+// already be halfway through one when the new loop starts.
+//
+// It is a pointer because model is copied on every update and all copies
+// must agree on which loop is live.
+type collectLoop struct {
+	mu  sync.Mutex
+	gen atomic.Int64
+}
 type extraMsg struct {
 	pid            int32
 	extra          collect.Extra
 	unitStatus     map[string]string
 	restartBlocked string
-	remote         bool
 }
 type actionMsg struct {
 	ok      bool
@@ -139,6 +156,9 @@ type model struct {
 	// so they can select and copy text. See toggleMouse.
 	mouseOff bool
 
+	// loop is the one live refresh loop; see collectLoop.
+	loop *collectLoop
+
 	// filterFromJump marks a filter that g or a click on a finding put
 	// there, rather than one the operator typed. The two look the same on
 	// screen and differ under "/": see handleListKey.
@@ -157,15 +177,6 @@ type model struct {
 	// upd is a release worth offering, once the background check has found
 	// one. Nil the rest of the time, which is almost always.
 	upd *updateState
-
-	// remote is nil when viewing this machine. Everything else in the model
-	// is about whichever host is being viewed, which is why switching hosts
-	// clears the selection and the locked order — a PID means a different
-	// process on a different box.
-	remote     *remote.Client
-	hosts      *hostPanel
-	hostErr    string
-	connecting string
 
 	toast      string
 	toastStyle func(...string) string
@@ -197,6 +208,7 @@ func initialModel(opt Options) model {
 		fullPath: true,
 		deepPID:  opt.PID, deepPort: opt.Port,
 		lastOOMCheck: time.Now(),
+		loop:         &collectLoop{},
 	}
 }
 
@@ -209,19 +221,7 @@ func Run(ctx context.Context, opt Options) error {
 }
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.collectCmd(0), m.pollOOMCmd(0), checkUpdateCmd(m.opt.Version, updateCheckDelay)}
-	if m.opt.Host != "" {
-		// -host connects in the background while the local screen fills in,
-		// so a slow or unreachable host shows an error over a working UI
-		// rather than a blank terminal and a wait.
-		h, err := parseTarget(m.opt.Host)
-		if err != nil {
-			cmds = append(cmds, func() tea.Msg { return connectedMsg{host: h, err: err} })
-		} else {
-			cmds = append(cmds, connectCmd(h))
-		}
-	}
-	return tea.Batch(cmds...)
+	return tea.Batch(m.collectCmd(0), m.pollOOMCmd(0), checkUpdateCmd(m.opt.Version, updateCheckDelay))
 }
 
 const oomPollInterval = 5 * time.Second
@@ -238,31 +238,35 @@ func (m model) pollOOMCmd(after time.Duration) tea.Cmd {
 }
 
 func (m model) collectCmd(after time.Duration) tea.Cmd {
-	col, rc := m.col, m.remote
+	col, loop := m.col, m.loop
+	gen := m.loopGen()
 	return tea.Tick(after, func(time.Time) tea.Msg {
-		if rc != nil {
-			s, err := rc.Snapshot(probeTimeout)
-			if err != nil {
-				return remoteErrMsg{host: rc.Host().Label(), err: err}
+		if loop != nil {
+			if loop.gen.Load() != gen {
+				return nil // a newer loop has taken over; this one ends here
 			}
-			return snapMsg(s)
+			loop.mu.Lock()
+			defer loop.mu.Unlock()
 		}
-		return snapMsg(col.Collect())
+		return snapMsg{snap: col.Collect(), gen: gen}
 	})
 }
 
-// probeTimeout bounds one remote reading. It is generous compared with the
-// refresh interval because a loaded host can be slow to fork, and a reading
-// that arrives late is still worth having — but a session that has silently
-// died must not wedge the refresh loop forever.
-const probeTimeout = 20 * time.Second
+// refreshNow replaces the refresh loop with one that reads immediately.
+// Anything that wants fresh numbers now calls this, never collectCmd(0),
+// which would run a second loop beside the one already going.
+func (m model) refreshNow() tea.Cmd {
+	if m.loop != nil {
+		m.loop.gen.Add(1)
+	}
+	return m.collectCmd(0)
+}
 
-// remoteErrMsg reports a failed reading. One failure is not a disconnect:
-// a host under load can miss a tick, so the error is shown and the loop
-// keeps trying rather than dropping the connection out from under someone.
-type remoteErrMsg struct {
-	host string
-	err  error
+func (m model) loopGen() int64 {
+	if m.loop == nil {
+		return 0
+	}
+	return m.loop.gen.Load()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -279,7 +283,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 
 	case snapMsg:
-		m.snap = msg
+		if msg.gen != m.loopGen() {
+			// From a loop that has been replaced — possibly one reading a
+			// host that has since been left. Its numbers are not this
+			// screen's, and scheduling its next tick would revive it.
+			return m, nil
+		}
+		m.snap = msg.snap
 		m.reanchorSel()
 		var cmds []tea.Cmd
 		if dc := m.resolveDeepLink(); dc != nil {
@@ -309,7 +319,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case extraMsg:
 		if m.detail != nil && m.detail.pid == msg.pid {
-			m.detail.remote = msg.remote
 			m.detail.extra = msg.extra
 			m.detail.unitStatus = msg.unitStatus
 			m.detail.restartBlocked = msg.restartBlocked
@@ -335,7 +344,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, toastCmd := m.showToast(msg.text, msg.ok)
 		cmds := []tea.Cmd{toastCmd}
 		if msg.ok {
-			cmds = append(cmds, m.collectCmd(0))
+			cmds = append(cmds, m.refreshNow())
 		}
 		if msg.openPID > 0 {
 			m.detail = &detailState{pid: msg.openPID, follow: true}
@@ -349,49 +358,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case connectedMsg:
-		m.connecting = ""
-		if msg.err != nil {
-			// The reason goes in the panel, because the fix is almost
-			// always something about that host — a key, a known_hosts
-			// entry — and it belongs next to the host it is about.
-			//
-			// The panel is opened if it isn't already: a -host that fails
-			// used to set this string where nothing rendered it, so the
-			// connection simply never happened and never said why.
-			m.hostErr = fmt.Sprintf("%s: %v", msg.host.Label(), msg.err)
-			if m.hosts == nil {
-				m.openHosts()
-			}
-			_, toast := m.showToastFor("Could not connect to "+msg.host.Label(), false, oomToastTTL)
-			return m, toast
-		}
-		if m.remote != nil {
-			m.remote.Close()
-		}
-		m.remote = msg.client
-		m.hosts, m.hostErr, m.snap = nil, "", nil
-		m.resetForHost()
-		_, toast := m.showToast("Connected to "+msg.host.Label(), true)
-		return m, tea.Batch(m.collectCmd(0), toast)
-
-	case remoteErrMsg:
-		if m.remote == nil || m.remote.Host().Label() != msg.host {
-			return m, nil // a stale reading from a host we already left
-		}
-		wait := m.opt.Interval
-		if wait <= 0 {
-			wait = 2 * time.Second
-		}
-		_, toast := m.showToast("Reading "+msg.host+" failed: "+msg.err.Error(), false)
-		return m, tea.Batch(toast, m.collectCmd(wait))
-
 	case updateFoundMsg:
 		// Only over the process list. A prompt that lands on top of a
 		// confirm, a filter being typed or an open detail panel interrupts
 		// work that was already underway, which is the one thing an
 		// unsolicited prompt must never do.
-		if m.confirm != nil || m.editing || m.detail != nil || m.hosts != nil || m.help {
+		if m.confirm != nil || m.editing || m.detail != nil || m.help {
 			// The same finding again in a minute, not another check. A
 			// fresh check would be refused by its own rate limit — it has
 			// just recorded that it ran — so re-checking here means the
@@ -472,12 +444,6 @@ func (m *model) resolveDeepLink() tea.Cmd {
 }
 
 func (m model) loadExtraCmd(pid int32) tea.Cmd {
-	if m.remote != nil {
-		// /proc/<pid>/fd, the journal and systemctl are all read locally.
-		// Returning the local machine's answers for a remote PID would be
-		// worse than returning none: they would look plausible.
-		return func() tea.Msg { return extraMsg{pid: pid, remote: true} }
-	}
 	return func() tea.Msg {
 		extra := collect.ProcExtra(pid)
 		p, ok := m.procByPID(pid)
@@ -495,9 +461,6 @@ func (m model) loadExtraCmd(pid int32) tea.Cmd {
 }
 
 func (m model) loadJournalCmd(pid int32) tea.Cmd {
-	if m.remote != nil {
-		return nil
-	}
 	p, _ := m.procByPID(pid)
 	unit, user := p.Unit, p.UnitUser
 	return func() tea.Msg {

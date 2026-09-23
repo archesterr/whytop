@@ -114,7 +114,6 @@ func TestChangingTheRowSetResetsTheScroll(t *testing.T) {
 			out, _ := m.handleEditKey(runes("n"))
 			return out.(model)
 		},
-		"another host": func(m model) model { m.resetForHost(); return m },
 	}
 	for name, change := range changes {
 		m := model{snap: testSnap(), sortKey: "cpu", width: 120, height: 40, top: 300}

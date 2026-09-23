@@ -28,7 +28,6 @@ var helpFamiliar = []helpEntry{
 var helpOwn = []helpEntry{
 	{"Enter", "open the process panel"},
 	{"g", "go to the next problem"},
-	{"@", "hosts — watch another box over SSH"},
 	{"L", "lock the row order"},
 	{"Space", "pause / resume sampling"},
 	{"m  right-click", "hand the mouse to the terminal so you can select and copy"},

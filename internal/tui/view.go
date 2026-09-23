@@ -49,8 +49,6 @@ func (m model) View() string {
 	switch {
 	case m.help:
 		b.WriteString(m.boxed(w, h, "KEYS", "", m.renderHelp(boxInner(w))))
-	case m.hosts != nil:
-		b.WriteString(m.boxed(w, h, "HOSTS", m.hosts.configPath, m.renderHosts(boxInner(w), h)))
 	case m.detail != nil:
 		b.WriteString(m.boxed(w, h, "PROCESS", "esc closes", m.renderDetail(boxInner(w), h)))
 	default:
@@ -92,13 +90,6 @@ func (m model) View() string {
 		}
 	}
 	return strings.Join(lines, "\n")
-}
-
-func (m model) hostBadge() string {
-	if m.remote == nil {
-		return ""
-	}
-	return stRemote.Render(" ssh ") + " "
 }
 
 func stripANSI(s string) string {
@@ -247,50 +238,29 @@ func (m model) renderFooter(w int) string {
 		// only obvious once it has already surprised you.
 		scope, _ := m.filterQuery()
 		keys = [][2]string{{"tab", "scope: " + scope.hint()}, {"enter", "apply"}, {"esc", "clear"}}
-	case m.hosts != nil:
-		if m.hosts.adding {
-			// One input line does two jobs, told apart by a leading "@":
-			// a host to connect to, or the ssh config to read hosts from.
-			// The body labels which; the footer has to agree, or enter
-			// promises to connect to a file path.
-			action := "connect"
-			if strings.HasPrefix(m.hosts.input, "@") {
-				action = "use this config"
-			}
-			keys = [][2]string{{"enter", action}, {"esc", "cancel"}}
-			break
-		}
-		keys = [][2]string{{"↑↓", "select"}, {"enter", "connect"}, {"a", "add host"},
-			{"c", "ssh config"}, {"r", "reload"}, {"esc", "close"}}
-
 	case m.detail != nil:
 		// A process that has exited keeps its panel open — you asked to see
 		// it, and being thrown back to the list the instant it died would
 		// take the answer away with it. But none of the actions can do
-		// anything to a PID that is gone, and they silently no-op: the same
-		// rule as the remote host below applies, so the footer stops
-		// offering them and says what happened instead.
+		// anything to a PID that is gone, and they silently no-op — a footer
+		// that lists keys which then do nothing is a footer people stop
+		// reading — so it stops offering them and says what happened.
 		if _, alive := m.procByPID(m.detail.pid); !alive {
 			keys = [][2]string{{"", "this process has exited"}, {"esc", "close"}}
 			break
 		}
 		// The panel has two lists; the hints name whichever one has the
 		// cursor, so the keys on offer are the ones that will actually fire.
-		if m.detail.focus == focusFiles && m.remote == nil {
+		if m.detail.focus == focusFiles {
 			keys = [][2]string{{"↑↓", "files"}, {"tab", "tree"}, {"t", "empty file"}, {"c", "close fd"}}
 		} else {
 			keys = [][2]string{{"↑↓", "tree"}, {"tab", "files"}, {"enter", "open"}}
 		}
-		// Actions act on the machine whytop runs on, so while a remote host
-		// is being viewed they are not offered at all. A footer that lists
-		// a key which then refuses is a footer people stop reading.
-		if m.remote == nil {
-			keys = append(keys, [2]string{"x", "stop"}, [2]string{"X", "kill"})
-			if p, ok := m.procByPID(m.detail.pid); ok && p.Unit != "" && !p.UnitUser {
-				keys = append(keys, [2]string{"e", "edit unit"})
-			}
+		keys = append(keys, [2]string{"x", "stop"}, [2]string{"X", "kill"})
+		if p, ok := m.procByPID(m.detail.pid); ok && p.Unit != "" && !p.UnitUser {
+			keys = append(keys, [2]string{"e", "edit unit"})
 		}
-		if m.remote == nil && (!m.detail.loaded || m.detail.restartBlocked == "") {
+		if !m.detail.loaded || m.detail.restartBlocked == "" {
 			keys = append(keys, [2]string{"r", "restart"})
 		}
 		follow := "f live-log: on"
@@ -325,7 +295,7 @@ func (m model) renderFooter(w int) string {
 		if m.lockOrder {
 			lock = "order: LOCKED"
 		}
-		keys = append(keys, [2]string{"<>", "sort"}, [2]string{"L", lock}, [2]string{"@", "hosts"},
+		keys = append(keys, [2]string{"<>", "sort"}, [2]string{"L", lock},
 			[2]string{"h", "help"}, [2]string{"q", "quit"})
 	}
 	// While the mouse belongs to the terminal, clicking a row and rolling

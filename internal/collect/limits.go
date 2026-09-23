@@ -90,43 +90,16 @@ func readCPUStat(dir string) (cpuStat, bool) {
 		return cpuStat{}, false
 	}
 	var s cpuStat
-	for _, line := range strings.Split(string(b), "\n") {
-		k, v, _ := strings.Cut(line, " ")
-		n, _ := strconv.ParseUint(strings.TrimSpace(v), 10, 64)
-		switch k {
-		case "nr_periods":
-			s.periods = n
-		case "nr_throttled":
-			s.throttled = n
-		}
-	}
+	s.periods, s.throttled = parseCPUStat(string(b))
 	return s, true
 }
 
 // readQuota returns the CPU limit in cores, 0 for none.
 func readQuota(dir string, v2 bool) float64 {
 	if v2 {
-		b, err := os.ReadFile(filepath.Join(dir, "cpu.max"))
-		if err != nil {
-			return 0
-		}
-		f := strings.Fields(string(b))
-		if len(f) != 2 || f[0] == "max" {
-			return 0
-		}
-		q, _ := strconv.ParseFloat(f[0], 64)
-		p, _ := strconv.ParseFloat(f[1], 64)
-		if p <= 0 {
-			return 0
-		}
-		return q / p
+		return quotaV2(readString(filepath.Join(dir, "cpu.max")))
 	}
-	q := readInt(filepath.Join(dir, "cpu.cfs_quota_us"))
-	p := readInt(filepath.Join(dir, "cpu.cfs_period_us"))
-	if q <= 0 || p <= 0 {
-		return 0
-	}
-	return float64(q) / float64(p)
+	return quotaV1(readString(filepath.Join(dir, "cpu.cfs_quota_us")), readString(filepath.Join(dir, "cpu.cfs_period_us")))
 }
 
 func readInt(path string) int64 {
@@ -166,8 +139,7 @@ func (c *Collector) collectThrottle(s *Snapshot) {
 			}
 			next[key] = cur
 			prev, had := c.prevThrottle[key]
-			if had && cur.periods > prev.periods {
-				v := float64(sub(cur.throttled, prev.throttled)) / float64(cur.periods-prev.periods) * 100
+			if v, ok := throttlePct(prev.periods, prev.throttled, cur.periods, cur.throttled); had && ok {
 				pct[key] = v
 				p.Throttled = v
 				if v > 0 {
@@ -182,12 +154,7 @@ func (c *Collector) collectThrottle(s *Snapshot) {
 
 // collectLimits reads the box-wide ceilings.
 func (c *Collector) collectLimits(s *Snapshot, elapsed float64) {
-	if f := strings.Fields(readString("/proc/sys/fs/file-nr")); len(f) == 3 {
-		used, _ := strconv.ParseUint(f[0], 10, 64)
-		free, _ := strconv.ParseUint(f[1], 10, 64)
-		s.Limits.FilesUsed = used - min(free, used)
-		s.Limits.FilesMax, _ = strconv.ParseUint(f[2], 10, 64)
-	}
+	s.Limits.FilesUsed, s.Limits.FilesMax, _ = parseFileNr(readString("/proc/sys/fs/file-nr"))
 	s.Limits.ConntrackUsed = uint64(max(0, readInt("/proc/sys/net/netfilter/nf_conntrack_count")))
 	s.Limits.ConntrackMax = uint64(max(0, readInt("/proc/sys/net/netfilter/nf_conntrack_max")))
 
@@ -319,4 +286,64 @@ func throttleLabel(p *Proc) string {
 		return p.Runtime + " " + p.Container
 	}
 	return fmt.Sprintf("%s[%d]", p.Name, p.PID)
+}
+
+// parseCPUStat reads nr_periods and nr_throttled from a cgroup's cpu.stat.
+func parseCPUStat(body string) (periods, throttled uint64) {
+	for _, line := range strings.Split(body, "\n") {
+		k, v, _ := strings.Cut(line, " ")
+		n, _ := strconv.ParseUint(strings.TrimSpace(v), 10, 64)
+		switch k {
+		case "nr_periods":
+			periods = n
+		case "nr_throttled":
+			throttled = n
+		}
+	}
+	return periods, throttled
+}
+
+// throttlePct is the share of periods between two cpu.stat readings in
+// which the group ran out of quota; ok is false when no period elapsed.
+func throttlePct(prevPeriods, prevThrottled, periods, throttled uint64) (float64, bool) {
+	if periods <= prevPeriods {
+		return 0, false
+	}
+	return float64(sub(throttled, prevThrottled)) / float64(periods-prevPeriods) * 100, true
+}
+
+// quotaV2 turns cpu.max ("50000 100000", or "max 100000") into cores.
+func quotaV2(cpuMax string) float64 {
+	f := strings.Fields(cpuMax)
+	if len(f) != 2 || f[0] == "max" {
+		return 0
+	}
+	q, _ := strconv.ParseFloat(f[0], 64)
+	p, _ := strconv.ParseFloat(f[1], 64)
+	if p <= 0 {
+		return 0
+	}
+	return q / p
+}
+
+// quotaV1 turns cpu.cfs_quota_us and cpu.cfs_period_us into cores.
+func quotaV1(quota, period string) float64 {
+	q, _ := strconv.ParseInt(strings.TrimSpace(quota), 10, 64)
+	p, _ := strconv.ParseInt(strings.TrimSpace(period), 10, 64)
+	if q <= 0 || p <= 0 {
+		return 0
+	}
+	return float64(q) / float64(p)
+}
+
+// parseFileNr reads /proc/sys/fs/file-nr as handles in use and the maximum.
+func parseFileNr(body string) (used, max uint64, ok bool) {
+	f := strings.Fields(body)
+	if len(f) != 3 {
+		return 0, 0, false
+	}
+	alloc, _ := strconv.ParseUint(f[0], 10, 64)
+	free, _ := strconv.ParseUint(f[1], 10, 64)
+	max, _ = strconv.ParseUint(f[2], 10, 64)
+	return alloc - min(free, alloc), max, true
 }

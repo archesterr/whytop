@@ -353,26 +353,33 @@ func (c *Collector) collectNet(s *Snapshot, elapsed float64) {
 		return
 	}
 	cur := pc[0].Stats
-	s.TCP.Available = true
-	s.TCP.Established = cur["CurrEstab"]
-	if p := c.prevTCP; p != nil && elapsed > 0 {
-		delta := func(k string) float64 {
-			v := cur[k] - p[k]
-			if v < 0 {
-				v = 0
-			}
-			return float64(v)
-		}
-		s.TCP.ActivePs = delta("ActiveOpens") / elapsed
-		s.TCP.PassivePs = delta("PassiveOpens") / elapsed
-		s.TCP.RetransPs = delta("RetransSegs") / elapsed
-		s.TCP.InErrPs = delta("InErrs") / elapsed
-		s.TCP.ResetPs = delta("OutRsts") / elapsed
-		if out := delta("OutSegs"); out > 0 {
-			s.TCP.RetransPct = delta("RetransSegs") / out * 100
-		}
-	}
+	fillTCP(&s.TCP, cur, c.prevTCP, elapsed)
 	c.prevTCP = cur
+}
+
+// fillTCP turns two readings of the kernel's Tcp counters into the rates
+// the status line and header use.
+func fillTCP(t *TCP, cur, prev map[string]int64, elapsed float64) {
+	t.Available = true
+	t.Established = cur["CurrEstab"]
+	if prev == nil || elapsed <= 0 {
+		return
+	}
+	delta := func(k string) float64 {
+		v := cur[k] - prev[k]
+		if v < 0 {
+			v = 0
+		}
+		return float64(v)
+	}
+	t.ActivePs = delta("ActiveOpens") / elapsed
+	t.PassivePs = delta("PassiveOpens") / elapsed
+	t.RetransPs = delta("RetransSegs") / elapsed
+	t.InErrPs = delta("InErrs") / elapsed
+	t.ResetPs = delta("OutRsts") / elapsed
+	if out := delta("OutSegs"); out > 0 {
+		t.RetransPct = delta("RetransSegs") / out * 100
+	}
 }
 
 func sub(a, b uint64) uint64 {
